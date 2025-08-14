@@ -5,11 +5,7 @@
   "type": "module",
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/main.js",
-      "default": "./dist/main.js"
-    },
+ "exports": {
     "./ports": {
       "import": "./dist/ports.js",
       "default": "./dist/ports.js"
@@ -38,27 +34,12 @@
   },
   "typesVersions": {
     "*": {
-      "*": [
-        "dist/*.d.ts"
-      ],
-      "ports": [
-        "dist/ports.d.ts"
-      ],
-      "events": [
-        "dist/events.d.ts"
-      ],
-      "workers": [
-        "dist/workers.d.ts"
-      ],
-      "components": [
-        "dist/components.d.ts"
-      ],
-      "tasks": [
-        "dist/tasks.d.ts"
-      ],
-      "store": [
-        "dist/store.d.ts"
-      ]
+      "ports": ["dist/ports.d.ts"],
+      "events": ["dist/events.d.ts"],
+      "workers": ["dist/workers.d.ts"],
+      "components": ["dist/components.d.ts"],
+      "tasks": ["dist/tasks.d.ts"],
+      "store": ["dist/store.d.ts"]
     }
   },
   "files": [
