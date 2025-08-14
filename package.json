@@ -4,32 +4,19 @@
   "version": "0.0.3",
   "type": "module",
   "main": "./dist/main.js",
-  "types": "./dist/main.d.ts",
+  "types": "./dist/types-compat.d.ts",
   "exports": {
-    "./ports": {
-      "import": "./dist/ports.js",
-      "default": "./dist/ports.js"
+    ".": {
+      "import": "./dist/main.js",
+      "default": "./dist/main.js",
+      "types": "./dist/types-compat.d.ts"
     },
-    "./events": {
-      "import": "./dist/events.js",
-      "default": "./dist/events.js"
-    },
-    "./workers": {
-      "import": "./dist/workers.js",
-      "default": "./dist/workers.js"
-    },
-    "./components": {
-      "import": "./dist/components.js",
-      "default": "./dist/components.js"
-    },
-    "./tasks": {
-      "import": "./dist/tasks.js",
-      "default": "./dist/tasks.js"
-    },
-    "./store": {
-      "import": "./dist/store.js",
-      "default": "./dist/store.js"
-    },
+    "./ports": { "import": "./dist/ports.js", "default": "./dist/ports.js" },
+    "./events": { "import": "./dist/events.js", "default": "./dist/events.js" },
+    "./workers": { "import": "./dist/workers.js", "default": "./dist/workers.js" },
+    "./components": { "import": "./dist/components.js", "default": "./dist/components.js" },
+    "./tasks": { "import": "./dist/tasks.js", "default": "./dist/tasks.js" },
+    "./store": { "import": "./dist/store.js", "default": "./dist/store.js" },
     "./package.json": "./package.json"
   },
   "typesVersions": {
@@ -62,7 +49,7 @@
   "sideEffects": false,
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "npm run clean && tsc",
+    "build": "npm run clean && tsc && node scripts/postbuild.js",
     "release": "node scripts/release.js",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build"
