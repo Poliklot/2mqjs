@@ -1,7 +1,7 @@
 {
   "name": "2mqjs",
   "description": "Архитектурная микробиблиотека для веб-приложений без фреймворков: компоненты, шина событий, воркеры, задачи, стор.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",
@@ -34,12 +34,24 @@
   },
   "typesVersions": {
     "*": {
-      "ports": ["dist/ports.d.ts"],
-      "events": ["dist/events.d.ts"],
-      "workers": ["dist/workers.d.ts"],
-      "components": ["dist/components.d.ts"],
-      "tasks": ["dist/tasks.d.ts"],
-      "store": ["dist/store.d.ts"]
+      "ports": [
+        "dist/ports.d.ts"
+      ],
+      "events": [
+        "dist/events.d.ts"
+      ],
+      "workers": [
+        "dist/workers.d.ts"
+      ],
+      "components": [
+        "dist/components.d.ts"
+      ],
+      "tasks": [
+        "dist/tasks.d.ts"
+      ],
+      "store": [
+        "dist/store.d.ts"
+      ]
     }
   },
   "files": [
