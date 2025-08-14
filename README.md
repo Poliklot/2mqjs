@@ -6,10 +6,11 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/2mqjs"><img src="https://img.shields.io/npm/v/2mqjs.svg" alt="npm version"></a>
-  <a href="https://bundlephobia.com/package/2mqjs"><img src="https://img.shields.io/bundlephobia/minzip/2mqjs.svg" alt="bundle size"></a>
+  <a href="https://packagephobia.com/result?p=2mqjs">
+    <img src="https://badgen.net/packagephobia/install/2mqjs" alt="install size">
+  </a>
   <img src="https://img.shields.io/badge/TypeScript-Strict-blue" alt="TypeScript">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="license">
-  <img src="https://img.shields.io/github/actions/workflow/status/your-org/2mqjs/ci.yml?branch=main" alt="build status">
 </p>
 
 > **2mqjs** — архитектурная микробиблиотека для веб‑приложений без тяжёлых фреймворков. Даёт чёткую структуру: разделяет UI, бизнес‑логику, коммуникацию и порядок инициализации.
