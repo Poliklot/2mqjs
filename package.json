@@ -77,12 +77,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/2mqjs.git"
+    "url": "git+https://github.com/poliklot/2mqjs.git"
   },
   "bugs": {
-    "url": "https://github.com/your-org/2mqjs/issues"
+    "url": "https://github.com/poliklot/2mqjs/issues"
   },
-  "homepage": "https://github.com/your-org/2mqjs#readme",
+  "homepage": "https://github.com/poliklot/2mqjs#readme",
   "engines": {
     "node": ">=18"
   },
