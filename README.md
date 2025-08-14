@@ -1,7 +1,7 @@
 # 2mqjs — Микроархитектура для Web-приложений
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/poliklot/2mqjs/master/assets/logo.svg" alt="2mqjs logo" width="120"/>
+  <img src="https://raw.githubusercontent.com/poliklot/2mqjs/master/assets/logo.svg" alt="2mqjs logo" width="420"/>
 </p>
 
 <p align="center">
