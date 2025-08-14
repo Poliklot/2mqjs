@@ -1,7 +1,7 @@
 {
   "name": "2mqjs",
   "description": "Архитектурная микробиблиотека для веб-приложений без фреймворков: компоненты, шина событий, воркеры, задачи, стор.",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "type": "module",
   "main": "./dist/main.js",
   "types": "./dist/types-compat.d.ts",
@@ -11,12 +11,30 @@
       "default": "./dist/main.js",
       "types": "./dist/types-compat.d.ts"
     },
-    "./ports": { "import": "./dist/ports.js", "default": "./dist/ports.js" },
-    "./events": { "import": "./dist/events.js", "default": "./dist/events.js" },
-    "./workers": { "import": "./dist/workers.js", "default": "./dist/workers.js" },
-    "./components": { "import": "./dist/components.js", "default": "./dist/components.js" },
-    "./tasks": { "import": "./dist/tasks.js", "default": "./dist/tasks.js" },
-    "./store": { "import": "./dist/store.js", "default": "./dist/store.js" },
+    "./ports": {
+      "import": "./dist/ports.js",
+      "default": "./dist/ports.js"
+    },
+    "./events": {
+      "import": "./dist/events.js",
+      "default": "./dist/events.js"
+    },
+    "./workers": {
+      "import": "./dist/workers.js",
+      "default": "./dist/workers.js"
+    },
+    "./components": {
+      "import": "./dist/components.js",
+      "default": "./dist/components.js"
+    },
+    "./tasks": {
+      "import": "./dist/tasks.js",
+      "default": "./dist/tasks.js"
+    },
+    "./store": {
+      "import": "./dist/store.js",
+      "default": "./dist/store.js"
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
