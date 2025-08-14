@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",
- "exports": {
+  "exports": {
     "./ports": {
       "import": "./dist/ports.js",
       "default": "./dist/ports.js"
