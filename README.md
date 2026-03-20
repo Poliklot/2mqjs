@@ -24,6 +24,7 @@
 * [**Workers**](./docs/WORKERS.md) — бизнес‑логика вне main thread
 * [**Tasks**](./docs/TASKS.md) — планировщик инициализаций и сценариев
 * [**Store**](./docs/STORE.md) — глобальное состояние вне основного потока
+* [**Events**](./docs/EVENTS.md) — DOM-утилиты: `delegate`, `onResize`
 
 ---
 
