@@ -93,7 +93,7 @@
     "access": "public"
   },
   "devDependencies": {
-    "typescript": "^5.8.3"
+    "typescript": "^6.0.3"
   },
   "keywords": [
     "web-performance",
