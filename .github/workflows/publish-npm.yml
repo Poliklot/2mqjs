@@ -1,20 +1,12 @@
 name: Publish npm package
 
 on:
-  workflow_call:
-    inputs:
-      tag_name:
-        description: Git tag to publish, for example v0.1.0 or 2mqjs-v0.1.0.
-        required: true
-        type: string
-      version:
-        description: Package version expected in package.json.
-        required: true
-        type: string
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag_name:
-        description: Git tag to publish. Defaults to the selected ref.
+        description: Git tag to publish. Defaults to the selected ref or release tag.
         required: false
         type: string
       version:
@@ -33,10 +25,19 @@ jobs:
     environment: npm
 
     steps:
-      - name: Checkout release tag
+      - name: Resolve release inputs
+        id: release-inputs
+        run: |
+          REF_NAME="${{ inputs.tag_name || github.event.release.tag_name || github.ref_name }}"
+          EXPECTED_VERSION="${{ inputs.version }}"
+
+          echo "ref_name=$REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "expected_version=$EXPECTED_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release ref
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag_name || github.ref_name }}
+          ref: ${{ steps.release-inputs.outputs.ref_name }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -55,7 +56,8 @@ jobs:
 
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
           const expectedVersion = process.env.EXPECTED_VERSION || pkg.version;
-          const tagName = process.env.TAG_NAME || `v${pkg.version}`;
+          const refName = process.env.REF_NAME || '';
+          const tagLike = refName && refName !== 'master' && refName !== 'main';
 
           if (pkg.name !== '2mqjs') {
             throw new Error(`Unexpected package name: ${pkg.name}`);
@@ -65,15 +67,19 @@ jobs:
             throw new Error(`package.json version ${pkg.version} does not match expected ${expectedVersion}`);
           }
 
-          if (tagName !== `v${pkg.version}` && tagName !== `2mqjs-v${pkg.version}` && tagName !== pkg.version) {
-            throw new Error(`Tag ${tagName} does not match package version ${pkg.version}`);
+          if (pkg.repository?.url !== 'https://github.com/Poliklot/2mqjs') {
+            throw new Error(`package.json repository.url must match provenance repository, got ${pkg.repository?.url}`);
           }
 
-          console.log(`Ready to publish ${pkg.name}@${pkg.version}`);
+          if (tagLike && refName !== `v${pkg.version}` && refName !== `2mqjs-v${pkg.version}` && refName !== pkg.version) {
+            throw new Error(`Ref ${refName} does not match package version ${pkg.version}`);
+          }
+
+          console.log(`Ready to publish ${pkg.name}@${pkg.version} from ${refName || 'current ref'}`);
           NODE
         env:
-          EXPECTED_VERSION: ${{ inputs.version }}
-          TAG_NAME: ${{ inputs.tag_name || github.ref_name }}
+          EXPECTED_VERSION: ${{ steps.release-inputs.outputs.expected_version }}
+          REF_NAME: ${{ steps.release-inputs.outputs.ref_name }}
 
       - name: Run release gate
         run: npm run release:check
