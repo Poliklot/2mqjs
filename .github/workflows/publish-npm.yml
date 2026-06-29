@@ -1,0 +1,82 @@
+name: Publish npm package
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        description: Git tag to publish, for example v0.1.0.
+        required: true
+        type: string
+      version:
+        description: Package version expected in package.json.
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Git tag to publish. Defaults to the selected ref.
+        required: false
+        type: string
+      version:
+        description: Expected package version. Defaults to package.json.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish 2mqjs
+    runs-on: ubuntu-latest
+    environment: npm
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag_name || github.ref_name }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify package metadata
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const expectedVersion = process.env.EXPECTED_VERSION || pkg.version;
+          const tagName = process.env.TAG_NAME || `v${pkg.version}`;
+
+          if (pkg.name !== '2mqjs') {
+            throw new Error(`Unexpected package name: ${pkg.name}`);
+          }
+
+          if (pkg.version !== expectedVersion) {
+            throw new Error(`package.json version ${pkg.version} does not match expected ${expectedVersion}`);
+          }
+
+          if (tagName !== `v${pkg.version}` && tagName !== pkg.version) {
+            throw new Error(`Tag ${tagName} does not match package version ${pkg.version}`);
+          }
+
+          console.log(`Ready to publish ${pkg.name}@${pkg.version}`);
+          NODE
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+          TAG_NAME: ${{ inputs.tag_name || github.ref_name }}
+
+      - name: Run release gate
+        run: npm run release:check
+
+      - name: Publish to npm with provenance
+        run: npm publish --access public --provenance

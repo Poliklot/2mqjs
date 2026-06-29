@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Roadmap and planned work
+    url: https://github.com/Poliklot/2mqjs/issues
+    about: Check the active roadmap before opening a duplicate issue.

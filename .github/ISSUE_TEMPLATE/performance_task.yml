@@ -1,0 +1,41 @@
+name: Performance task
+description: Track runtime, bundle-size, worker, or scheduling improvements.
+title: "perf: "
+labels: [performance, needs-triage]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Performance goal
+      description: What should become faster, smaller, or less blocking?
+    validations:
+      required: true
+  - type: textarea
+    id: baseline
+    attributes:
+      label: Current baseline
+      description: Include bundle size, benchmark numbers, trace notes, or code references.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      value: |
+        In scope:
+        -
+
+        Out of scope:
+        -
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ] Baseline and target metric are documented.
+        - [ ] Change is covered by tests/smoke checks.
+        - [ ] Release notes explain migration risks, if any.
+    validations:
+      required: true

@@ -1,0 +1,34 @@
+name: Feature request
+description: Propose a new runtime capability or API improvement.
+title: "feat: "
+labels: [enhancement, needs-triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Which integration, performance, or DX problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the API and expected behavior.
+      render: ts
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ] API is documented.
+        - [ ] Runtime behavior is covered by tests or smoke checks.
+        - [ ] Bundle/package impact is measured.
+    validations:
+      required: true

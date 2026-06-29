@@ -1,0 +1,52 @@
+name: Bug report
+description: Report incorrect runtime behavior in 2mqjs.
+title: "bug: "
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve 2mqjs. Please include a minimal reproduction and the browser/runtime where the bug happens.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened and what did you expect instead?
+      placeholder: A component registered with when='interaction' needs two clicks to run.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Paste a small code sample, sandbox, or repository link.
+      render: ts
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - components
+        - ports
+        - workers
+        - tasks
+        - store
+        - events
+        - package/release
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, bundler, Node.js/npm versions, and package version.
+      placeholder: Chrome 126, Vite 5, Node 22, 2mqjs 0.0.4
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
