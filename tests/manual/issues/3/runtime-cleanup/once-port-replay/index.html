@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Проверка очистки oncePort после синхронного replay" />
+    <title>Issue #3 · oncePort replay</title>
+    <link rel="stylesheet" href="../../../../shared/styles.css" />
+  </head>
+  <body>
+    <main class="manual-tests">
+      <a class="manual-tests__back" href="../">← Сценарии issue #3</a>
+
+      <header class="manual-tests__header manual-tests__header--compact">
+        <p class="manual-tests__eyebrow">Issue #3 / oncePort replay</p>
+        <h1>Replay cleanup</h1>
+        <p class="manual-tests__intro">
+          Сценарий использует реальные <code>emitPort()</code> и <code>oncePort()</code> из библиотеки.
+        </p>
+      </header>
+
+      <section class="manual-steps" aria-labelledby="steps-title">
+        <h2 id="steps-title">Как проверить вручную</h2>
+        <ol>
+          <li>Откройте DevTools → Console.</li>
+          <li>Нажмите «Проверить replay».</li>
+          <li>Callback должен получить snapshot один раз и не реагировать на последующий emit.</li>
+        </ol>
+      </section>
+
+      <section class="cleanup-test" aria-labelledby="test-title">
+        <div class="cleanup-test__summary">
+          <p class="cleanup-test__index">02</p>
+          <div>
+            <h2 id="test-title">Snapshot → oncePort → future emit</h2>
+            <p>Сначала сохраняется snapshot, затем создаётся одноразовая подписка и публикуется новое значение.</p>
+          </div>
+        </div>
+
+        <p class="cleanup-test__status" data-state="idle" data-testid="once-port-status">
+          Проверка не запускалась
+        </p>
+
+        <dl class="cleanup-test__metrics" aria-live="polite">
+          <div>
+            <dt>Вызовов callback</dt>
+            <dd data-testid="callback-calls">0</dd>
+          </div>
+          <div>
+            <dt>Первое значение</dt>
+            <dd data-testid="first-payload">—</dd>
+          </div>
+          <div>
+            <dt>Future доставлен</dt>
+            <dd data-testid="future-delivered">—</dd>
+          </div>
+        </dl>
+
+        <button class="cleanup-test__run" type="button">Проверить replay</button>
+        <p class="cleanup-test__hint">Подробная последовательность полученных значений выводится в Console.</p>
+      </section>
+
+      <script type="module" src="./main.ts"></script>
+    </main>
+  </body>
+</html>
