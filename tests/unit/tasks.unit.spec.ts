@@ -59,4 +59,31 @@ describe('task timeout cleanup', () => {
 
     expect(log).not.toHaveBeenCalled();
   });
+
+  it('removes a port listener after the condition resolves', async () => {
+    const run = vi.fn();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const id = 'test:task-port-cleanup';
+    const port = `${id}:ready`;
+
+    setTasksDebug(true);
+
+    registerTask({
+      id,
+      stage: id,
+      when: `port:${port}`,
+      run,
+    });
+
+    const pendingRun = runTasks(id);
+    emitPort(port, 'ready');
+    await pendingRun;
+
+    expect(run).toHaveBeenCalledOnce();
+
+    log.mockClear();
+    emitPort(port, 'after-resolve');
+
+    expect(log).not.toHaveBeenCalled();
+  });
 });

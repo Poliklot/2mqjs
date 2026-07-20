@@ -15,3 +15,11 @@ test('allPorts task condition removes port listeners after resolve', async ({ pa
   await expect(page.getByTestId('task-all-ports-status')).toHaveText('Подписки очищены');
   await expect(page.getByTestId('task-all-ports-stale-logs')).toHaveText('0');
 });
+
+test('port task condition removes its listener after resolve', async ({ page }) => {
+  await page.goto('/issues/3/runtime-cleanup/task-port-cleanup/');
+  await page.getByRole('button', { name: 'Проверить port' }).click();
+
+  await expect(page.getByTestId('task-port-status')).toHaveText('Подписка очищена');
+  await expect(page.getByTestId('task-port-stale-logs')).toHaveText('0');
+});
