@@ -80,12 +80,16 @@ export function oncePort<T = unknown>(
   port: PortName,
   cb: PortListener<T>,
 ): void {
-  let off: (() => void) | null = null;
   const wrapper = (data: T) => {
-    if (off) off();
+    off();
     cb(data);
   };
-  off = onPort<T>(port, wrapper);
+
+  const off = onPort<T>(port, wrapper, false);
+
+  if (last.has(port)) {
+    wrapper(last.get(port) as T);
+  }
 }
 
 export function getPortSnapshot<T = unknown>(port: PortName): T | undefined {
