@@ -23,3 +23,11 @@ test('port task condition removes its listener after resolve', async ({ page }) 
   await expect(page.getByTestId('task-port-status')).toHaveText('Подписка очищена');
   await expect(page.getByTestId('task-port-stale-logs')).toHaveText('0');
 });
+
+test('worker task condition removes its ready listener after resolve', async ({ page }) => {
+  await page.goto('/issues/3/runtime-cleanup/task-worker-condition-cleanup/');
+  await page.getByRole('button', { name: 'Проверить worker' }).click();
+
+  await expect(page.getByTestId('task-worker-status')).toHaveText('Подписка очищена');
+  await expect(page.getByTestId('task-worker-stale-logs')).toHaveText('0');
+});

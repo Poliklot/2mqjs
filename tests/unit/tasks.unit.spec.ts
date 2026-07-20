@@ -86,4 +86,31 @@ describe('task timeout cleanup', () => {
 
     expect(log).not.toHaveBeenCalled();
   });
+
+  it('removes a worker ready listener after the condition resolves', async () => {
+    const run = vi.fn();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const id = 'test:task-worker-cleanup';
+    const workerName = `${id}:worker`;
+
+    setTasksDebug(true);
+
+    registerTask({
+      id,
+      stage: id,
+      when: `worker:${workerName}`,
+      run,
+    });
+
+    const pendingRun = runTasks(id);
+    emitPort(`${workerName}:ready`, 'ready');
+    await pendingRun;
+
+    expect(run).toHaveBeenCalledOnce();
+
+    log.mockClear();
+    emitPort(`${workerName}:ready`, 'after-resolve');
+
+    expect(log).not.toHaveBeenCalled();
+  });
 });
