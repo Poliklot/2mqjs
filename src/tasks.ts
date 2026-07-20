@@ -1,4 +1,4 @@
-import { onPort, oncePort } from "./ports.js";
+import { oncePort } from "./ports.js";
 
 /**
  * Тип функции задачи, которая может быть синхронной или асинхронной.
@@ -143,8 +143,10 @@ export async function runTasks(stage?: string): Promise<void> {
 }
 
 /**
- * Сбрасывает состояние выполненных задач, кэша и ожидающих условий.
- * Полезно для повторного выполнения в development-режиме.
+ * Сбрасывает состояние выполненных задач и кэша.
+ * Отменяет ожидающие `timeout:*` и `data:*` (condition → false, `run` не вызывается).
+ * Не прерывает уже запущенный `Task.run()` и не снимает ожидающие port/worker/allPorts/DOM when.
+ * Полезно для повторного выполнения в development-режиме (hot-reload).
  */
 export function resetTasks(): void {
   pendingWaits.forEach(cancel => cancel());
