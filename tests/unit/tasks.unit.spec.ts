@@ -9,6 +9,7 @@ describe('task timeout cleanup', () => {
     setTasksDebug(false);
     vi.restoreAllMocks();
     resetTasks();
+    delete (globalThis as Record<string, unknown>).__taskDataResetReady;
   });
 
   it('does not run a task whose pending timeout was reset', async () => {
@@ -24,6 +25,27 @@ describe('task timeout cleanup', () => {
 
     const pendingRun = runTasks('test:task-timeout-reset');
     resetTasks();
+    await vi.advanceTimersByTimeAsync(100);
+    await pendingRun;
+
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('does not run a task whose pending data polling was reset', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('window', globalThis);
+    const run = vi.fn();
+
+    registerTask({
+      id: 'test:task-data-reset',
+      stage: 'test:task-data-reset',
+      when: 'data:__taskDataResetReady',
+      run,
+    });
+
+    const pendingRun = runTasks('test:task-data-reset');
+    resetTasks();
+    (globalThis as Record<string, unknown>).__taskDataResetReady = true;
     await vi.advanceTimersByTimeAsync(100);
     await pendingRun;
 

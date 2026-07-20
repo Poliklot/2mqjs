@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Проверка отмены data polling через resetTasks" />
+    <title>Issue #3 · Task data reset</title>
+    <link rel="stylesheet" href="../../../../shared/styles.css" />
+  </head>
+  <body>
+    <main class="manual-tests">
+      <a class="manual-tests__back" href="../">← Сценарии issue #3</a>
+
+      <header class="manual-tests__header manual-tests__header--compact">
+        <p class="manual-tests__eyebrow">Issue #3 / task data reset</p>
+        <h1>Task data polling cleanup</h1>
+        <p class="manual-tests__intro">
+          Сценарий запускает задачу с условием <code>data:__manualTaskDataReady</code>, сразу вызывает
+          <code>resetTasks()</code>, а потом создаёт эти данные.
+        </p>
+      </header>
+
+      <section class="manual-steps" aria-labelledby="steps-title">
+        <h2 id="steps-title">Как проверить вручную</h2>
+        <ol>
+          <li>Откройте DevTools → Console.</li>
+          <li>Нажмите «Проверить data polling».</li>
+          <li>После reset появление данных не должно запускать <code>Task.run()</code>.</li>
+        </ol>
+      </section>
+
+      <section class="cleanup-test" aria-labelledby="test-title">
+        <div class="cleanup-test__summary">
+          <p class="cleanup-test__index">08</p>
+          <div>
+            <h2 id="test-title">runTasks → resetTasks → data appears</h2>
+            <p>Проверка показывает, остался ли data polling interval после reset.</p>
+          </div>
+        </div>
+
+        <p class="cleanup-test__status" data-state="idle" data-testid="task-data-status">
+          Проверка не запускалась
+        </p>
+
+        <dl class="cleanup-test__metrics" aria-live="polite">
+          <div>
+            <dt>Вызовов Task.run</dt>
+            <dd data-testid="task-data-runs">0</dd>
+          </div>
+          <div>
+            <dt>Данные появляются через</dt>
+            <dd>120 мс</dd>
+          </div>
+          <div>
+            <dt>resetTasks</dt>
+            <dd>сразу</dd>
+          </div>
+        </dl>
+
+        <button class="cleanup-test__run" type="button">Проверить data polling</button>
+        <p class="cleanup-test__hint">До исправления Task.run выполнится после появления данных.</p>
+      </section>
+
+      <script type="module" src="./main.ts"></script>
+    </main>
+  </body>
+</html>

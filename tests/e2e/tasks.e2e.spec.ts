@@ -8,6 +8,14 @@ test('resetTasks cancels a pending task timeout', async ({ page }) => {
   await expect(page.getByTestId('task-runs')).toHaveText('0');
 });
 
+test('resetTasks cancels pending task data polling', async ({ page }) => {
+  await page.goto('/issues/3/runtime-cleanup/task-data-reset/');
+  await page.getByRole('button', { name: 'Проверить data polling' }).click();
+
+  await expect(page.getByTestId('task-data-status')).toHaveText('Polling отменён');
+  await expect(page.getByTestId('task-data-runs')).toHaveText('0');
+});
+
 test('allPorts task condition removes port listeners after resolve', async ({ page }) => {
   await page.goto('/issues/3/runtime-cleanup/task-all-ports-cleanup/');
   await page.getByRole('button', { name: 'Проверить allPorts' }).click();
