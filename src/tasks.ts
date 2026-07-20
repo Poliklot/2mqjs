@@ -64,6 +64,7 @@ interface TaskState {
   tasks: Map<string, Task>;
   done: Set<string>;
   cache: Map<string, any>;
+  pendingTimeouts: Set<() => void>;
   running: boolean;
   debug: boolean;
 }
@@ -75,12 +76,13 @@ const shared: TaskState =
     tasks: new Map(),
     done: new Set(),
     cache: new Map(),
+    pendingTimeouts: new Set(),
     running: false,
     debug: false,
   });
 
 // Деструктурируем только ссылочные структуры — флаги берём прямо из shared
-const { tasks, done, cache } = shared;
+const { tasks, done, cache, pendingTimeouts } = shared;
 
 type TaskLogKind = 'start' | 'done' | 'skip' | 'fail' | 'retry' | 'deps' | 'when';
 
@@ -141,10 +143,12 @@ export async function runTasks(stage?: string): Promise<void> {
 }
 
 /**
- * Сбрасывает состояние выполненных задач и кэша.
+ * Сбрасывает состояние выполненных задач, кэша и ожидающих timeout-условий.
  * Полезно для повторного выполнения в development-режиме.
  */
 export function resetTasks(): void {
+  pendingTimeouts.forEach(cancel => cancel());
+  pendingTimeouts.clear();
   done.clear();
   cache.clear();
 }
@@ -321,9 +325,23 @@ async function checkWhenCondition(when: TaskInitStrategy, id: string): Promise<b
 
   if (when.startsWith('timeout:')) {
     const ms = parseInt(when.slice(8), 10);
-    return new Promise(resolve =>
-      setTimeout(() => (tlog('when', id, `timeout:${ms}`), resolve(true)), ms),
-    );
+    return new Promise(resolve => {
+      let timer: ReturnType<typeof setTimeout>;
+
+      const cancel = () => {
+        clearTimeout(timer);
+        pendingTimeouts.delete(cancel);
+        resolve(false);
+      };
+
+      timer = setTimeout(() => {
+        pendingTimeouts.delete(cancel);
+        tlog('when', id, `timeout:${ms}`);
+        resolve(true);
+      }, ms);
+
+      pendingTimeouts.add(cancel);
+    });
   }
 
   if (when.startsWith('data:')) {
