@@ -1,4 +1,4 @@
-import { onPort } from "./ports.js";
+import { onPort, oncePort } from "./ports.js";
 
 /**
  * Тип функции задачи, которая может быть синхронной или асинхронной.
@@ -318,7 +318,12 @@ async function checkWhenCondition(when: TaskInitStrategy, id: string): Promise<b
     return Promise.all(
       events.map(
         event =>
-          new Promise(res => onPort(event, () => (tlog('when', id, `port:${event}`), res(true)))),
+          new Promise<void>(resolvePort => {
+            oncePort(event, () => {
+              tlog('when', id, `port:${event}`);
+              resolvePort();
+            });
+          }),
       ),
     ).then(() => true);
   }
