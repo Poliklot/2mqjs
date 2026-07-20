@@ -144,8 +144,9 @@ export async function runTasks(stage?: string): Promise<void> {
 
 /**
  * Сбрасывает состояние выполненных задач и кэша.
- * Отменяет ожидающие `timeout:*` и `data:*` (condition → false, `run` не вызывается).
- * Не прерывает уже запущенный `Task.run()` и не снимает ожидающие port/worker/allPorts/DOM when.
+ * Отменяет ожидающие `timeout:*`, `data:*`, `port:*`, `allPorts:*`, `worker:*`
+ * (condition → false, `run` не вызывается).
+ * Не прерывает уже запущенный `Task.run()` и не снимает `load`/`idle`/`visible`/`custom`.
  * Полезно для повторного выполнения в development-режиме (hot-reload).
  */
 export function resetTasks(): void {
@@ -256,6 +257,44 @@ async function runSingle(id: string): Promise<void> {
 }
 
 /**
+ * Ждёт oncePort по каждому имени. true — все пришли; false — resetTasks().
+ * @private
+ */
+function awaitPorts(
+  ports: string[],
+  onPort: (port: string) => void,
+): Promise<boolean> {
+  if (ports.length === 0) return Promise.resolve(true);
+
+  return new Promise(resolve => {
+    let settled = false;
+    const pending = new Set(ports);
+
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      pendingWaits.delete(cancel);
+      resolve(value);
+    };
+
+    const cancel = () => {
+      offs.forEach(off => off());
+      finish(false);
+    };
+
+    pendingWaits.add(cancel);
+
+    const offs = ports.map(port =>
+      oncePort(port, () => {
+        pending.delete(port);
+        onPort(port);
+        if (pending.size === 0) finish(true);
+      }),
+    );
+  });
+}
+
+/**
  * Проверяет условие выполнения задачи.
  * @private
  */
@@ -310,24 +349,12 @@ async function checkWhenCondition(when: TaskInitStrategy, id: string): Promise<b
 
   if (when.startsWith('port:')) {
     const event = when.slice(5);
-    return new Promise(resolve => {
-      oncePort(event, () => (tlog('when', id, `port:${event}`), resolve(true)));
-    });
+    return awaitPorts([event], () => tlog('when', id, `port:${event}`));
   }
 
   if (when.startsWith('allPorts:')) {
-    const events = when.slice(9).split(',').map(s => s.trim());
-    return Promise.all(
-      events.map(
-        event =>
-          new Promise<void>(resolvePort => {
-            oncePort(event, () => {
-              tlog('when', id, `port:${event}`);
-              resolvePort();
-            });
-          }),
-      ),
-    ).then(() => true);
+    const events = when.slice(9).split(',').map(s => s.trim()).filter(Boolean);
+    return awaitPorts(events, event => tlog('when', id, `port:${event}`));
   }
 
   if (when.startsWith('timeout:')) {
@@ -391,9 +418,9 @@ async function checkWhenCondition(when: TaskInitStrategy, id: string): Promise<b
 
   if (when.startsWith('worker:')) {
     const workerName = when.slice(7);
-    return new Promise(resolve => {
-      oncePort(`${workerName}:ready`, () => (tlog('when', id, `worker:${workerName}:ready`), resolve(true)));
-    });
+    return awaitPorts([`${workerName}:ready`], () =>
+      tlog('when', id, `worker:${workerName}:ready`),
+    );
   }
 
   if (when.startsWith('custom:')) {

@@ -3,7 +3,7 @@
  *
  *   emitPort('name', payload)        — публикация
  *   onPort('name', cb)               — подписка   (off-функция)
- *   oncePort('name', cb)             — одноразовая подписка
+ *   oncePort('name', cb)             — одноразовая подписка (off)
  *   getPortSnapshot('name')          — последнее значение, если было
  *   setPortsDebug(true | opts)       — включить/выключить логирование
  *
@@ -79,7 +79,7 @@ export function onPort<T = unknown>(
 export function oncePort<T = unknown>(
   port: PortName,
   cb: PortListener<T>,
-): void {
+): () => void {
   const wrapper = (data: T) => {
     off();
     cb(data);
@@ -90,6 +90,8 @@ export function oncePort<T = unknown>(
   if (last.has(port)) {
     wrapper(last.get(port) as T);
   }
+
+  return off;
 }
 
 export function getPortSnapshot<T = unknown>(port: PortName): T | undefined {

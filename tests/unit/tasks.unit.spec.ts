@@ -135,4 +135,66 @@ describe('task timeout cleanup', () => {
 
     expect(log).not.toHaveBeenCalled();
   });
+
+  it('does not run a task whose pending port wait was reset', async () => {
+    const run = vi.fn();
+    const id = 'test:task-port-reset';
+    const port = `${id}:ready`;
+
+    registerTask({
+      id,
+      stage: id,
+      when: `port:${port}`,
+      run,
+    });
+
+    const pendingRun = runTasks(id);
+    resetTasks();
+    emitPort(port, 'after-reset');
+    await pendingRun;
+
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('does not run a task whose pending worker wait was reset', async () => {
+    const run = vi.fn();
+    const id = 'test:task-worker-reset';
+    const workerName = `${id}:worker`;
+
+    registerTask({
+      id,
+      stage: id,
+      when: `worker:${workerName}`,
+      run,
+    });
+
+    const pendingRun = runTasks(id);
+    resetTasks();
+    emitPort(`${workerName}:ready`, 'after-reset');
+    await pendingRun;
+
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('does not run a task whose pending allPorts wait was reset', async () => {
+    const run = vi.fn();
+    const id = 'test:task-all-ports-reset';
+    const firstPort = `${id}:first`;
+    const secondPort = `${id}:second`;
+
+    registerTask({
+      id,
+      stage: id,
+      when: `allPorts:${firstPort},${secondPort}`,
+      run,
+    });
+
+    const pendingRun = runTasks(id);
+    emitPort(firstPort, 'partial');
+    resetTasks();
+    emitPort(secondPort, 'after-reset');
+    await pendingRun;
+
+    expect(run).not.toHaveBeenCalled();
+  });
 });
