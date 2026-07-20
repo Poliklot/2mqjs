@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-types */
-import { _attachWorker, emitPort } from './ports.js';
+import { _attachWorker, _detachWorker, emitPort } from './ports.js';
 
 /**
  * Опции регистрации воркера.
@@ -55,6 +55,7 @@ export const terminateWorker = (name: string): void => {
   const w = registry.get(name);
   if (w) {
     w.terminate();
+    _detachWorker(w);
     registry.delete(name);
   }
 };

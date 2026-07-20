@@ -118,3 +118,7 @@ export function setPortsDebug(
 export function _attachWorker(worker: Worker): void {
   workers.add(worker);
 }
+
+export function _detachWorker(worker: Worker): void {
+  workers.delete(worker);
+}
