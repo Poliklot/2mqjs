@@ -309,7 +309,7 @@ async function checkWhenCondition(when: TaskInitStrategy, id: string): Promise<b
   if (when.startsWith('port:')) {
     const event = when.slice(5);
     return new Promise(resolve => {
-      onPort(event, () => (tlog('when', id, `port:${event}`), resolve(true)));
+      oncePort(event, () => (tlog('when', id, `port:${event}`), resolve(true)));
     });
   }
 
