@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { registerTask, resetTasks, runTasks } from '../../src/tasks.js';
+import { emitPort } from '../../src/ports.js';
+import { registerTask, resetTasks, runTasks, setTasksDebug } from '../../src/tasks.js';
 
 describe('task timeout cleanup', () => {
   afterEach(() => {
     vi.useRealTimers();
+    setTasksDebug(false);
+    vi.restoreAllMocks();
     resetTasks();
   });
 
@@ -25,5 +28,35 @@ describe('task timeout cleanup', () => {
     await pendingRun;
 
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it('removes allPorts listeners after the condition resolves', async () => {
+    const run = vi.fn();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const id = 'test:task-all-ports-cleanup';
+    const firstPort = `${id}:first`;
+    const secondPort = `${id}:second`;
+
+    setTasksDebug(true);
+
+    registerTask({
+      id,
+      stage: id,
+      when: `allPorts:${firstPort},${secondPort}`,
+      run,
+    });
+
+    const pendingRun = runTasks(id);
+    emitPort(firstPort, 'ready');
+    emitPort(secondPort, 'ready');
+    await pendingRun;
+
+    expect(run).toHaveBeenCalledOnce();
+
+    log.mockClear();
+    emitPort(firstPort, 'after-resolve');
+    emitPort(secondPort, 'after-resolve');
+
+    expect(log).not.toHaveBeenCalled();
   });
 });
