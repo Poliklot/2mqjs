@@ -3,18 +3,31 @@ interface Opts { debounce?: number; }
 
 const resizeSubs = new Set<Fn>();
 let rTimer: number | undefined;
+let rDebounce = 100;
+
+function rHandler(): void {
+  clearTimeout(rTimer);
+  rTimer = window.setTimeout(
+    () => resizeSubs.forEach(fn => fn()),
+    rDebounce,
+  );
+}
 
 export function onResize(cb: Fn, opts: Opts = {}): () => void {
-  if (resizeSubs.size === 0) window.addEventListener('resize', rHandler, { passive: true });
+  if (resizeSubs.size === 0) {
+    rDebounce = opts.debounce ?? 100;
+    window.addEventListener('resize', rHandler, { passive: true });
+  }
   resizeSubs.add(cb);
   return () => {
-    resizeSubs.delete(cb);
-    if (resizeSubs.size === 0) window.removeEventListener('resize', rHandler);
-  };
-  function rHandler(): void {
+    const wasSubscribed = resizeSubs.delete(cb);
+
+    if (!wasSubscribed || resizeSubs.size > 0) return;
+
+    window.removeEventListener('resize', rHandler);
     clearTimeout(rTimer);
-    rTimer = window.setTimeout(() => resizeSubs.forEach(fn => fn()), opts.debounce ?? 100);
-  }
+    rTimer = undefined;
+  };
 }
 
 /**
