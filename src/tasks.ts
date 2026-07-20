@@ -64,7 +64,7 @@ interface TaskState {
   tasks: Map<string, Task>;
   done: Set<string>;
   cache: Map<string, any>;
-  pendingTimeouts: Set<() => void>;
+  pendingWaits: Set<() => void>;
   running: boolean;
   debug: boolean;
 }
@@ -76,13 +76,13 @@ const shared: TaskState =
     tasks: new Map(),
     done: new Set(),
     cache: new Map(),
-    pendingTimeouts: new Set(),
+    pendingWaits: new Set(),
     running: false,
     debug: false,
   });
 
 // Деструктурируем только ссылочные структуры — флаги берём прямо из shared
-const { tasks, done, cache, pendingTimeouts } = shared;
+const { tasks, done, cache, pendingWaits } = shared;
 
 type TaskLogKind = 'start' | 'done' | 'skip' | 'fail' | 'retry' | 'deps' | 'when';
 
@@ -143,12 +143,12 @@ export async function runTasks(stage?: string): Promise<void> {
 }
 
 /**
- * Сбрасывает состояние выполненных задач, кэша и ожидающих timeout-условий.
+ * Сбрасывает состояние выполненных задач, кэша и ожидающих условий.
  * Полезно для повторного выполнения в development-режиме.
  */
 export function resetTasks(): void {
-  pendingTimeouts.forEach(cancel => cancel());
-  pendingTimeouts.clear();
+  pendingWaits.forEach(cancel => cancel());
+  pendingWaits.clear();
   done.clear();
   cache.clear();
 }
@@ -335,17 +335,17 @@ async function checkWhenCondition(when: TaskInitStrategy, id: string): Promise<b
 
       const cancel = () => {
         clearTimeout(timer);
-        pendingTimeouts.delete(cancel);
+        pendingWaits.delete(cancel);
         resolve(false);
       };
 
       timer = setTimeout(() => {
-        pendingTimeouts.delete(cancel);
+        pendingWaits.delete(cancel);
         tlog('when', id, `timeout:${ms}`);
         resolve(true);
       }, ms);
 
-      pendingTimeouts.add(cancel);
+      pendingWaits.add(cancel);
     });
   }
 
@@ -365,13 +365,24 @@ async function checkWhenCondition(when: TaskInitStrategy, id: string): Promise<b
         tlog('when', id, `data:${key}:now`);
         resolve(true);
       } else {
-        const interval = setInterval(() => {
+        let interval: ReturnType<typeof setInterval>;
+
+        const cancel = () => {
+          clearInterval(interval);
+          pendingWaits.delete(cancel);
+          resolve(false);
+        };
+
+        interval = setInterval(() => {
           if (check()) {
             clearInterval(interval);
+            pendingWaits.delete(cancel);
             tlog('when', id, `data:${key}:ready`);
             resolve(true);
           }
         }, 100);
+
+        pendingWaits.add(cancel);
       }
     });
   }
