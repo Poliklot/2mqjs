@@ -15,6 +15,18 @@ describe('oncePort', () => {
     expect(listener).toHaveBeenCalledWith('snapshot');
   });
 
+  it('unsubscribes after the first future event', () => {
+    const port = 'test:once-port:future-event';
+    const listener = vi.fn();
+
+    oncePort(port, listener);
+    emitPort(port, 'first');
+    emitPort(port, 'second');
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith('first');
+  });
+
   it('can be cancelled before the first event', () => {
     const port = 'test:once-port:cancel';
     const listener = vi.fn();
