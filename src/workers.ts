@@ -56,7 +56,9 @@ export const terminateWorker = (name: string): void => {
   if (w) {
     w.terminate();
     _detachWorker(w);
-    registry.delete(name);
+    for (const [registeredName, registeredWorker] of registry) {
+      if (registeredWorker === w) registry.delete(registeredName);
+    }
   }
 };
 
