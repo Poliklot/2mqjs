@@ -59,6 +59,18 @@ assert.equal(typeof components.registerComponent, 'function');
 assert.equal(typeof tasks.registerTask, 'function');
 assert.equal(typeof store.defineGlobalStore, 'function');
 
+const taskResetDocumentation = 'Сбрасывает текущее поколение выполнения задач';
+const tasksRuntime = fs.readFileSync(path.join(root, 'dist/tasks.js'), 'utf8');
+const tasksDeclarations = fs.readFileSync(path.join(root, 'dist/tasks.d.ts'), 'utf8');
+assert.ok(
+  !tasksRuntime.includes(taskResetDocumentation),
+  'tasks runtime must not contain JSDoc comments',
+);
+assert.ok(
+  tasksDeclarations.includes(taskResetDocumentation),
+  'tasks declarations must preserve public JSDoc comments',
+);
+
 const sizeBudget = {
   'dist/main.js': 200,
   'dist/ports.js': 4_000,
