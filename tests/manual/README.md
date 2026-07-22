@@ -18,3 +18,4 @@
 - `task-port-cleanup` — очистка `port:*` подписки.
 - `task-worker-condition-cleanup` — очистка `worker:*` ready-подписки.
 - `worker-registry-cleanup` — удаление terminated worker из ports-set.
+- `task-lifecycle-reset` — инвалидизация позднего function-when и отмена retry-delay.

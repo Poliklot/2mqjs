@@ -65,6 +65,7 @@ interface TaskState {
   done: Set<string>;
   cache: Map<string, any>;
   pendingWaits: Set<() => void>;
+  lifecycleNumber: number;
   running: boolean;
   debug: boolean;
 }
@@ -77,9 +78,13 @@ const shared: TaskState =
     done: new Set(),
     cache: new Map(),
     pendingWaits: new Set(),
+    lifecycleNumber: 0,
     running: false,
     debug: false,
   });
+
+// Поддерживаем singleton, созданный более ранней копией модуля на той же странице.
+shared.lifecycleNumber ??= 0;
 
 // Деструктурируем только ссылочные структуры — флаги берём прямо из shared
 const { tasks, done, cache, pendingWaits } = shared;
@@ -133,24 +138,26 @@ export function registerTask(task: Task): void {
 export async function runTasks(stage?: string): Promise<void> {
   if (shared.running) throw new Error('runTasks already in progress');
   shared.running = true;
+  const lifecycleNumber = shared.lifecycleNumber;
   try {
     const list = Array.from(tasks.values()).filter(t => (stage ? t.stage === stage : true));
     list.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
-    await Promise.all(list.map(task => runSingle(task.id)));
+    await Promise.all(list.map(task => runSingle(task.id, lifecycleNumber)));
   } finally {
     shared.running = false;
   }
 }
 
 /**
- * Сбрасывает состояние выполненных задач и кэша.
- * Отменяет ожидающие `timeout:*`, `data:*`, `port:*`, `allPorts:*`, `worker:*`
- * (condition → false, `run` не вызывается).
- * Не прерывает уже запущенный `Task.run()` и не снимает `load`/`idle`/`visible`/`custom`.
+ * Сбрасывает текущее поколение выполнения задач, состояние выполненных задач и кэш.
+ * Отменяет все ожидающие встроенные условия и retry-задержки. Пользовательские Promise
+ * и уже запущенный `Task.run()` физически не прерываются, но их поздний результат
+ * игнорируется и не переносится в новое поколение.
  * Полезно для повторного выполнения в development-режиме (hot-reload).
  */
 export function resetTasks(): void {
-  pendingWaits.forEach(cancel => cancel());
+  shared.lifecycleNumber += 1;
+  [...pendingWaits].forEach(cancel => cancel());
   pendingWaits.clear();
   done.clear();
   cache.clear();
@@ -173,7 +180,8 @@ export function setTasksDebug(enabled: boolean): void {
  * повторные вызовы будут ожидать завершения первой, вместо второго запуска.
  * @private
  */
-async function runSingle(id: string): Promise<void> {
+async function runSingle(id: string, lifecycleNumber: number): Promise<void> {
+  if (lifecycleNumber !== shared.lifecycleNumber) return;
   if (done.has(id)) return;
 
   // Дедупликация: если уже есть «в полёте» — просто ждём
@@ -199,14 +207,18 @@ async function runSingle(id: string): Promise<void> {
       if (!t) {
         // Нет такой задачи — помечаем как «сделано», чтобы не пытаться снова
         tlog('skip', id, 'no-task');
-        done.add(id);
+        if (lifecycleNumber === shared.lifecycleNumber) done.add(id);
         resolveInflight();
         return;
       }
 
       if (t.deps?.length) {
         tlog('deps', id, t.deps);
-        await Promise.all(t.deps.map(dep => runSingle(dep)));
+        await Promise.all(t.deps.map(dep => runSingle(dep, lifecycleNumber)));
+        if (lifecycleNumber !== shared.lifecycleNumber) {
+          resolveInflight();
+          return;
+        }
       }
 
       if (t.when) {
@@ -218,8 +230,7 @@ async function runSingle(id: string): Promise<void> {
           tlog('when', id, t.when);
           should = await checkWhenCondition(t.when, t.id);
         }
-        if (!should) {
-          // Условие пока не наступило — не отмечаем как done, чтобы можно было перезапустить позже
+        if (lifecycleNumber !== shared.lifecycleNumber || !should) {
           tlog('skip', id, 'condition=false');
           resolveInflight();
           return;
@@ -231,20 +242,36 @@ async function runSingle(id: string): Promise<void> {
         try {
           tlog('start', id);
           await t.run();
+          if (lifecycleNumber !== shared.lifecycleNumber) {
+            resolveInflight();
+            break;
+          }
           tlog('done', id);
           done.add(t.id);
           resolveInflight();
           break;
         } catch (error) {
+          if (lifecycleNumber !== shared.lifecycleNumber) {
+            resolveInflight();
+            break;
+          }
           if (attempts > 0) {
             attempts--;
             tlog('retry', id, { attemptsLeft: attempts, error });
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            const didRetryDelayComplete = await waitForCancellableCondition(completeWait => {
+              const timer = setTimeout(completeWait, 1000);
+              return () => clearTimeout(timer);
+            });
+
+            if (!didRetryDelayComplete || lifecycleNumber !== shared.lifecycleNumber) {
+              resolveInflight();
+              break;
+            }
             continue;
           }
           tlog('fail', id, error);
           rejectInflight(error);
-          throw error;
+          break;
         }
       }
     } finally {
@@ -257,6 +284,34 @@ async function runSingle(id: string): Promise<void> {
 }
 
 /**
+ * Регистрирует отменяемое library-owned ожидание и гарантирует единое освобождение ресурсов
+ * как после успешного завершения, так и после resetTasks().
+ * @private
+ */
+function waitForCancellableCondition(
+  startWait: (completeWait: () => void) => () => void,
+): Promise<boolean> {
+  return new Promise(resolve => {
+    let isWaitFinished = false;
+    let cleanupWaitResources = () => {};
+
+    const finishWait = (value: boolean) => {
+      if (isWaitFinished) return;
+      isWaitFinished = true;
+      pendingWaits.delete(cancelWait);
+      cleanupWaitResources();
+      resolve(value);
+    };
+
+    const cancelWait = () => finishWait(false);
+    pendingWaits.add(cancelWait);
+    cleanupWaitResources = startWait(() => finishWait(true));
+
+    if (isWaitFinished) cleanupWaitResources();
+  });
+}
+
+/**
  * Ждёт oncePort по каждому имени. true — все пришли; false — resetTasks().
  * @private
  */
@@ -266,31 +321,19 @@ function awaitPorts(
 ): Promise<boolean> {
   if (ports.length === 0) return Promise.resolve(true);
 
-  return new Promise(resolve => {
-    let settled = false;
+  return waitForCancellableCondition(completeWait => {
     const pending = new Set(ports);
+    const offs: Array<() => void> = [];
 
-    const finish = (value: boolean) => {
-      if (settled) return;
-      settled = true;
-      pendingWaits.delete(cancel);
-      resolve(value);
-    };
-
-    const cancel = () => {
-      offs.forEach(off => off());
-      finish(false);
-    };
-
-    pendingWaits.add(cancel);
-
-    const offs = ports.map(port =>
-      oncePort(port, () => {
+    for (const port of ports) {
+      offs.push(oncePort(port, () => {
         pending.delete(port);
         onPort(port);
-        if (pending.size === 0) finish(true);
-      }),
-    );
+        if (pending.size === 0) completeWait();
+      }));
+    }
+
+    return () => offs.forEach(off => off());
   });
 }
 
@@ -307,43 +350,45 @@ async function checkWhenCondition(when: TaskInitStrategy, id: string): Promise<b
       tlog('when', id, 'load:already-complete');
       return true;
     }
-    return new Promise(resolve => {
-      window.addEventListener(
-        'load',
-        () => (tlog('when', id, 'load:ready'), resolve(true)),
-        { once: true },
-      );
+    return waitForCancellableCondition(completeWait => {
+      const listener = () => {
+        tlog('when', id, 'load:ready');
+        completeWait();
+      };
+      window.addEventListener('load', listener, { once: true });
+      return () => window.removeEventListener('load', listener);
     });
   }
 
   if (when === 'idle') {
-    return new Promise(resolve => {
-      const cb = () => (tlog('when', id, 'idle:ready'), resolve(true));
+    return waitForCancellableCondition(completeWait => {
+      const cb = () => {
+        tlog('when', id, 'idle:ready');
+        completeWait();
+      };
       if (typeof window.requestIdleCallback === 'function') {
-        window.requestIdleCallback(cb);
-      } else {
-        setTimeout(cb, 0);
+        const callbackId = window.requestIdleCallback(cb);
+        return () => window.cancelIdleCallback(callbackId);
       }
+      const timer = setTimeout(cb, 0);
+      return () => clearTimeout(timer);
     });
   }
 
   if (when === 'visible') {
-    return new Promise(resolve => {
-      if (document.visibilityState === 'visible') {
-        tlog('when', id, 'visible:now');
-        resolve(true);
-      } else {
-        document.addEventListener(
-          'visibilitychange',
-          () => {
-            if (document.visibilityState === 'visible') {
-              tlog('when', id, 'visible:ready');
-              resolve(true);
-            }
-          },
-          { once: true },
-        );
-      }
+    if (document.visibilityState === 'visible') {
+      tlog('when', id, 'visible:now');
+      return true;
+    }
+    return waitForCancellableCondition(completeWait => {
+      const listener = () => {
+        if (document.visibilityState === 'visible') {
+          tlog('when', id, 'visible:ready');
+          completeWait();
+        }
+      };
+      document.addEventListener('visibilitychange', listener);
+      return () => document.removeEventListener('visibilitychange', listener);
     });
   }
 
@@ -359,60 +404,38 @@ async function checkWhenCondition(when: TaskInitStrategy, id: string): Promise<b
 
   if (when.startsWith('timeout:')) {
     const ms = parseInt(when.slice(8), 10);
-    return new Promise(resolve => {
-      let timer: ReturnType<typeof setTimeout>;
-
-      const cancel = () => {
-        clearTimeout(timer);
-        pendingWaits.delete(cancel);
-        resolve(false);
-      };
-
-      timer = setTimeout(() => {
-        pendingWaits.delete(cancel);
+    return waitForCancellableCondition(completeWait => {
+      const timer = setTimeout(() => {
         tlog('when', id, `timeout:${ms}`);
-        resolve(true);
+        completeWait();
       }, ms);
-
-      pendingWaits.add(cancel);
+      return () => clearTimeout(timer);
     });
   }
 
   if (when.startsWith('data:')) {
     const key = when.slice(5);
-    return new Promise(resolve => {
-      const check = () => {
-        const keys = key.split('.');
-        let obj: any = window;
-        for (const k of keys) {
-          obj = obj?.[k];
-          if (obj == null) return false;
-        }
-        return true;
-      };
-      if (check()) {
-        tlog('when', id, `data:${key}:now`);
-        resolve(true);
-      } else {
-        let interval: ReturnType<typeof setInterval>;
-
-        const cancel = () => {
-          clearInterval(interval);
-          pendingWaits.delete(cancel);
-          resolve(false);
-        };
-
-        interval = setInterval(() => {
-          if (check()) {
-            clearInterval(interval);
-            pendingWaits.delete(cancel);
-            tlog('when', id, `data:${key}:ready`);
-            resolve(true);
-          }
-        }, 100);
-
-        pendingWaits.add(cancel);
+    const check = () => {
+      const keys = key.split('.');
+      let obj: any = window;
+      for (const k of keys) {
+        obj = obj?.[k];
+        if (obj == null) return false;
       }
+      return true;
+    };
+    if (check()) {
+      tlog('when', id, `data:${key}:now`);
+      return true;
+    }
+    return waitForCancellableCondition(completeWait => {
+      const interval = setInterval(() => {
+        if (check()) {
+          tlog('when', id, `data:${key}:ready`);
+          completeWait();
+        }
+      }, 100);
+      return () => clearInterval(interval);
     });
   }
 
@@ -425,12 +448,13 @@ async function checkWhenCondition(when: TaskInitStrategy, id: string): Promise<b
 
   if (when.startsWith('custom:')) {
     const event = when.slice(7);
-    return new Promise(resolve => {
-      window.addEventListener(
-        event,
-        () => (tlog('when', id, `custom:${event}`), resolve(true)),
-        { once: true },
-      );
+    return waitForCancellableCondition(completeWait => {
+      const listener = () => {
+        tlog('when', id, `custom:${event}`);
+        completeWait();
+      };
+      window.addEventListener(event, listener, { once: true });
+      return () => window.removeEventListener(event, listener);
     });
   }
 

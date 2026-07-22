@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('resetTasks cancels a pending task timeout', async ({ page }) => {
+test('resetTasks отменяет ожидающий timeout задачи', async ({ page }) => {
   await page.goto('/issues/3/runtime-cleanup/task-timeout-reset/');
   await page.getByRole('button', { name: 'Проверить отмену' }).click();
 
@@ -8,7 +8,7 @@ test('resetTasks cancels a pending task timeout', async ({ page }) => {
   await expect(page.getByTestId('task-runs')).toHaveText('0');
 });
 
-test('resetTasks cancels pending task data polling', async ({ page }) => {
+test('resetTasks отменяет ожидающий data polling задачи', async ({ page }) => {
   await page.goto('/issues/3/runtime-cleanup/task-data-reset/');
   await page.getByRole('button', { name: 'Проверить data polling' }).click();
 
@@ -16,7 +16,7 @@ test('resetTasks cancels pending task data polling', async ({ page }) => {
   await expect(page.getByTestId('task-data-runs')).toHaveText('0');
 });
 
-test('allPorts task condition removes port listeners after resolve', async ({ page }) => {
+test('условие allPorts удаляет listeners после выполнения', async ({ page }) => {
   await page.goto('/issues/3/runtime-cleanup/task-all-ports-cleanup/');
   await page.getByRole('button', { name: 'Проверить allPorts' }).click();
 
@@ -24,7 +24,7 @@ test('allPorts task condition removes port listeners after resolve', async ({ pa
   await expect(page.getByTestId('task-all-ports-stale-logs')).toHaveText('0');
 });
 
-test('port task condition removes its listener after resolve', async ({ page }) => {
+test('условие port удаляет listener после выполнения', async ({ page }) => {
   await page.goto('/issues/3/runtime-cleanup/task-port-cleanup/');
   await page.getByRole('button', { name: 'Проверить port' }).click();
 
@@ -32,10 +32,19 @@ test('port task condition removes its listener after resolve', async ({ page }) 
   await expect(page.getByTestId('task-port-stale-logs')).toHaveText('0');
 });
 
-test('worker task condition removes its ready listener after resolve', async ({ page }) => {
+test('условие worker удаляет listener готовности после выполнения', async ({ page }) => {
   await page.goto('/issues/3/runtime-cleanup/task-worker-condition-cleanup/');
   await page.getByRole('button', { name: 'Проверить worker' }).click();
 
   await expect(page.getByTestId('task-worker-status')).toHaveText('Подписка очищена');
   await expect(page.getByTestId('task-worker-stale-logs')).toHaveText('0');
+});
+
+test('resetTasks инвалидирует поздний function-when и отменяет retry-delay', async ({ page }) => {
+  await page.goto('/issues/3/runtime-cleanup/task-lifecycle-reset/');
+  await page.getByRole('button', { name: 'Проверить сброс lifecycle' }).click();
+
+  await expect(page.getByTestId('task-lifecycle-status')).toHaveText('Lifecycle отменён');
+  await expect(page.getByTestId('task-function-runs')).toHaveText('0');
+  await expect(page.getByTestId('task-retry-runs')).toHaveText('1');
 });
