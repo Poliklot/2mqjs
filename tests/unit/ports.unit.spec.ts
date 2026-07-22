@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { emitPort, oncePort } from '../../src/ports.js';
 
-describe('oncePort', () => {
-  it('unsubscribes after a synchronous snapshot replay', () => {
+describe('одноразовая подписка oncePort', () => {
+  it('отписывается после синхронного replay сохранённого значения', () => {
     const port = 'test:once-port:snapshot-replay';
     const listener = vi.fn();
 
@@ -15,7 +15,7 @@ describe('oncePort', () => {
     expect(listener).toHaveBeenCalledWith('snapshot');
   });
 
-  it('unsubscribes after the first future event', () => {
+  it('отписывается после первого будущего события', () => {
     const port = 'test:once-port:future-event';
     const listener = vi.fn();
 
@@ -27,7 +27,7 @@ describe('oncePort', () => {
     expect(listener).toHaveBeenCalledWith('first');
   });
 
-  it('can be cancelled before the first event', () => {
+  it('отменяется до первого события', () => {
     const port = 'test:once-port:cancel';
     const listener = vi.fn();
 

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('terminated workers do not receive emitted ports', async ({ page }) => {
+test('завершённые workers не получают события портов', async ({ page }) => {
   await page.goto('/issues/3/runtime-cleanup/worker-registry-cleanup/');
   await page.getByRole('button', { name: 'Проверить worker registry' }).click();
 

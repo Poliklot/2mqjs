@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { emitPort } from '../../src/ports.js';
 import { registerWorker, sendToWorker, terminateWorker } from '../../src/workers.js';
 
-describe('worker cleanup', () => {
-  it('stops forwarding emitted ports to a terminated worker', async () => {
+describe('очистка worker', () => {
+  it('не пересылает события портов завершённому worker', async () => {
     const worker = {
       addEventListener: vi.fn(),
       postMessage: vi.fn(),
@@ -23,7 +23,7 @@ describe('worker cleanup', () => {
     expect(worker.postMessage).not.toHaveBeenCalled();
   });
 
-  it('removes every registry alias of a terminated worker', async () => {
+  it('удаляет все registry aliases завершённого worker', async () => {
     const worker = {
       addEventListener: vi.fn(),
       postMessage: vi.fn(),

@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { onResize } from '../../src/events.js';
 
-describe('onResize', () => {
+describe('подписки onResize', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('uses one global listener and removes it after the last subscriber leaves', () => {
+  it('использует один глобальный listener и удаляет его после последней отписки', () => {
     const resizeListeners = new Set<EventListenerOrEventListenerObject>();
     const windowMock = {
       addEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {

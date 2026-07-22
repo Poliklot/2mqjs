@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Проверка очистки oncePort после синхронного replay" />
-    <title>Issue #3 · oncePort replay</title>
+    <title>Issue #3 · Replay oncePort</title>
     <link rel="stylesheet" href="../../../../shared/styles.css" />
   </head>
   <body>
@@ -12,8 +12,8 @@
       <a class="manual-tests__back" href="../">← Сценарии issue #3</a>
 
       <header class="manual-tests__header manual-tests__header--compact">
-        <p class="manual-tests__eyebrow">Issue #3 / oncePort replay</p>
-        <h1>Replay cleanup</h1>
+        <p class="manual-tests__eyebrow">Issue #3 / replay oncePort</p>
+        <h1>Очистка replay-подписки</h1>
         <p class="manual-tests__intro">
           Сценарий использует реальные <code>emitPort()</code> и <code>oncePort()</code> из библиотеки.
         </p>
@@ -32,7 +32,7 @@
         <div class="cleanup-test__summary">
           <p class="cleanup-test__index">02</p>
           <div>
-            <h2 id="test-title">Snapshot → oncePort → future emit</h2>
+            <h2 id="test-title">Снимок → oncePort → последующий emit</h2>
             <p>Сначала сохраняется snapshot, затем создаётся одноразовая подписка и публикуется новое значение.</p>
           </div>
         </div>

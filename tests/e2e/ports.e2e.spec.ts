@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('oncePort removes a replayed subscription before future events', async ({ page }) => {
+test('oncePort удаляет replay-подписку до будущих событий', async ({ page }) => {
   await page.goto('/issues/3/runtime-cleanup/once-port-replay/');
   await page.getByRole('button', { name: 'Проверить replay' }).click();
 
