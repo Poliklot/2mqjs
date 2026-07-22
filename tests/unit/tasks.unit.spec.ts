@@ -519,4 +519,57 @@ describe('очистка ожиданий задач', () => {
 
     expect(run).toHaveBeenCalledOnce();
   });
+
+  it('повторяет задачу после завершения retry-delay', async () => {
+    vi.useFakeTimers();
+    const run = vi.fn()
+      .mockRejectedValueOnce(new Error('retry me'))
+      .mockResolvedValueOnce(undefined);
+    const id = 'test:task-retry-delay-resolve';
+
+    registerTask({ id, stage: id, retry: 1, run });
+
+    const pendingRun = runTasks(id);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await pendingRun;
+
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it('возвращает ошибку после исчерпания retry', async () => {
+    vi.useFakeTimers();
+    const terminalError = new Error('terminal failure');
+    const run = vi.fn().mockRejectedValue(terminalError);
+    const id = 'test:task-terminal-error';
+
+    registerTask({ id, stage: id, retry: 1, run });
+
+    const pendingRun = runTasks(id);
+    const rejectedRun = expect(pendingRun).rejects.toBe(terminalError);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await rejectedRun;
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it('пишет debug-логи только после явного включения', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const silentId = 'test:task-debug-disabled';
+    const verboseId = 'test:task-debug-enabled';
+
+    setTasksDebug(false);
+    registerTask({ id: silentId, stage: silentId, run: vi.fn() });
+    await runTasks(silentId);
+
+    expect(log).not.toHaveBeenCalled();
+
+    setTasksDebug(true);
+    registerTask({ id: verboseId, stage: verboseId, run: vi.fn() });
+    await runTasks(verboseId);
+
+    expect(log).toHaveBeenCalled();
+  });
 });
