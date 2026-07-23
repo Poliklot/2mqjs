@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project uses [Release Please](https://github.com/googleapis/release-please) and follows Conventional Commits for automated release notes.
 
+## [0.1.3](https://github.com/Poliklot/2mqjs/compare/2mqjs-v0.1.2...2mqjs-v0.1.3) (2026-07-23)
+
+
+### Bug Fixes
+
+* validate worker handler names ([#29](https://github.com/Poliklot/2mqjs/issues/29)) ([f365ad2](https://github.com/Poliklot/2mqjs/commit/f365ad2b291eaaff1ad87635baa46551c28a50f0))
+
 ## [0.1.2](https://github.com/Poliklot/2mqjs/compare/2mqjs-v0.1.1...2mqjs-v0.1.2) (2026-07-23)
 
 
