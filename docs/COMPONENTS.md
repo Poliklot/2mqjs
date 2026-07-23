@@ -12,34 +12,48 @@
    * `display` — быстрый рендер (шаблон, лёгкие обработчики).
    * `boot` — тяжёлая логика (подписки, запросы, сложные UI).
 3. **Ленивая загрузка** — модуль подгружается по стратегии `immediate`, `visible` или `interaction`.
-4. **Гарантия однократного запуска** — компонент не инициализируется дважды.
+4. **Надёжный lifecycle** — boot: `booting → booted | failed`; успех не повторяется, `failed` можно retry.
 
 ---
 
 ## 📊 API
 
-| Метод                | Назначение                                              | Сигнатура                                      |
-| -------------------- | ------------------------------------------------------- | ---------------------------------------------- |
-| `registerComponent`  | Регистрирует компонент                                  | `({ name, load, when?, hasDisplay? }) => void` |
-| `runComponentLoader` | Сканирует контейнер или весь DOM и запускает компоненты | `(root?: ParentNode) => void`                  |
-| `bootComponent`      | Форсирует запуск для конкретного элемента               | `(el: Element) => void`                        |
+| Метод                      | Назначение                                              | Сигнатура                                      |
+| -------------------------- | ------------------------------------------------------- | ---------------------------------------------- |
+| `registerComponent`        | Регистрирует компонент                                  | `({ name, load, when?, hasDisplay? }) => void` |
+| `runComponentLoader`       | Сканирует контейнер или весь DOM и запускает компоненты | `(root?: ParentNode) => void`                  |
+| `bootComponent`            | Форсирует boot для конкретного элемента (в т.ч. retry)  | `(el: Element) => void`                        |
+| `setComponentsErrorHandler`| Опциональный hook ошибок load/boot                      | `((error) => void) \| null`                    |
+| `setComponentsDebug`       | Debug-логи register/init                                | `(on \| flags) => void`                        |
 
 ---
 
 ## 📚 Типы
 
 ```ts
-export type ComponentModule =
-  | ((el: Element) => void)
-  | {
-      display?: (el: Element) => void;
-      boot?: (el: Element) => void;
-      default?: (el: Element) => void;
-    };
+export type ComponentModule = {
+  display?: (el: Element) => void;
+  boot?: (el: Element) => void;
+  default?: (el: Element) => void;
+};
 
 export type ComponentLoader = () => Promise<ComponentModule> | ComponentModule;
 export type InitStrategy = 'immediate' | 'visible' | 'interaction';
 ```
+
+---
+
+## 🔁 Lifecycle и retry
+
+Внутренний `WeakMap` состояний boot:
+
+| Состояние | Поведение loader |
+| --- | --- |
+| *(нет)* | Полный pipeline (display + strategy) |
+| `booting` / `booted` | No-op |
+| `failed` | Retry только boot (`runComponentLoader` / `bootComponent`) |
+
+**Retry policy:** без auto-retry. Повтор — явный re-scan или `bootComponent`. Ошибки → `failed` + hook / `console.error` (не sticky forever).
 
 ---
 
@@ -108,3 +122,9 @@ setComponentsDebug(true);
 ```
 
 Логи будут содержать информацию о регистрации, загрузке и инициализации каждого компонента.
+
+---
+
+## 🚨 Ошибки load / boot
+
+По умолчанию — `console.error`. Hook: `setComponentsErrorHandler((error) => { … })`. Сброс: `setComponentsErrorHandler(null)`.

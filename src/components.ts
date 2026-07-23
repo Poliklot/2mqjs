@@ -58,11 +58,15 @@ export interface ComponentDefinition {
   events?: InteractionEvent[];
 }
 
+/** booting — in-flight; booted — успех; failed — можно retry */
+type BootState = 'booting' | 'booted' | 'failed';
+
 /* ---------- Singleton-хранилище ---------- */
 interface SharedState {
   registry: Map<string, ComponentDefinition>;
-  initialized: WeakSet<Element>;
+  bootStates: WeakMap<Element, BootState>;
   debug: { register: boolean; init: boolean };
+  onError: ((error: unknown) => void) | null;
 }
 
 const GLOBAL_KEY = Symbol.for('components.registry');
@@ -70,11 +74,12 @@ const shared: SharedState =
   (globalThis as any)[GLOBAL_KEY] ??
   ((globalThis as any)[GLOBAL_KEY] = {
     registry: new Map(),
-    initialized: new WeakSet(),
+    bootStates: new WeakMap(),
     debug: { register: false, init: false },
+    onError: null,
   });
 
-const { registry, initialized, debug } = shared;
+const { registry, bootStates, debug } = shared;
 
 /* ---------- Вспомогалка логирования ---------- */
 /**
@@ -92,6 +97,14 @@ function log(kind: 'register' | 'init', name: string, data?: unknown): void {
     'color:#D52B1E',
     data ?? '',
   );
+}
+
+function reportError(error: unknown): void {
+  if (shared.onError) {
+    shared.onError(error);
+    return;
+  }
+  console.error(error);
 }
 
 /* ---------- API ---------- */
@@ -124,6 +137,7 @@ export function registerComponent({
 
 /**
  * Запускает поиск по DOM и инициализирует компоненты по атрибуту data-component. Поддерживает ленивую инициализацию (intersection, interaction).
+ * Retry: элемент в `failed` снова проходит boot при следующем вызове / `bootComponent` (без auto-retry).
  * @param $root Элемент, внутри которого нужно инициализировать компоненты (по умолчанию document.body)
  */
 export function runComponentLoader($root: HTMLElement = document.body): void {
@@ -138,7 +152,14 @@ export function runComponentLoader($root: HTMLElement = document.body): void {
   $root.querySelectorAll<HTMLElement>('[data-component]').forEach(el => {
     const name = el.getAttribute('data-component');
     const def = name ? registry.get(name) : undefined;
-    if (!def || initialized.has(el)) return;
+    if (!def) return;
+
+    const state = bootStates.get(el);
+    if (state === 'booting' || state === 'booted') return;
+    if (state === 'failed') {
+      tryBoot(el);
+      return;
+    }
 
     const { load, when, hasDisplay, events } = def;
 
@@ -197,32 +218,59 @@ export function bootComponent(el: Element): void {
  * @param el DOM-элемент с атрибутом data-component
  */
 function tryBoot(el: Element): void {
-  if (initialized.has(el)) return;
-  initialized.add(el);
+  const state = bootStates.get(el);
+  if (state === 'booting' || state === 'booted') return;
 
   const name = el.getAttribute('data-component');
   const def = name ? registry.get(name) : undefined;
   if (!def) return;
 
+  bootStates.set(el, 'booting');
+
   const { load, hasDisplay } = def;
 
   log('init', name!, 'boot');
 
+  const onFail = (error: unknown): void => {
+    bootStates.set(el, 'failed');
+    reportError(error);
+  };
+
   const handle = (mod: ComponentModule) => {
-    if (mod.boot) {
-      mod.boot(el);
-    } else if (!hasDisplay && typeof mod.default === 'function') {
-      mod.default(el);
+    try {
+      if (mod.boot) {
+        mod.boot(el);
+      } else if (!hasDisplay && typeof mod.default === 'function') {
+        mod.default(el);
+      }
+      bootStates.set(el, 'booted');
+    } catch (error) {
+      onFail(error);
     }
   };
 
-  const result = load();
+  let result: ComponentModule | Promise<ComponentModule>;
+  try {
+    result = load();
+  } catch (error) {
+    onFail(error);
+    return;
+  }
 
   if (result instanceof Promise) {
-    result.then(handle).catch(console.error);
+    result.then(handle).catch(onFail);
   } else {
     handle(result);
   }
+}
+
+/**
+ * Опциональный hook ошибок load/boot. Без handler — `console.error`. `null` сбрасывает.
+ */
+export function setComponentsErrorHandler(
+  handler: ((error: unknown) => void) | null,
+): void {
+  shared.onError = handler;
 }
 
 /**
