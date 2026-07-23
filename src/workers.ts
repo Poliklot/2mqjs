@@ -23,10 +23,10 @@ const registry = new Map<string, Worker>();
 export async function registerWorker(opts: WorkerOptions): Promise<void> {
   if (registry.has(opts.name)) return;
 
-  const w =
-    typeof opts.src === 'function'
-      ? ((await opts.src()) as any).default ?? ((await opts.src()) as Worker)
-      : opts.src;
+  // Review #27, замечание 3: сохраняем результат, чтобы не вызвать фабрику повторно,
+  // когда она возвращает Worker напрямую, без поля default.
+  const workerOrModule = await opts.src();
+  const w = 'default' in workerOrModule ? workerOrModule.default : workerOrModule;
 
   w.addEventListener(
     'message',

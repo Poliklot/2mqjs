@@ -83,6 +83,10 @@ const shared: TaskState =
     debug: false,
   });
 
+// Review #27, замечание 2: старый singleton не содержит поля lifecycle cleanup.
+shared.pendingWaits ??= new Set();
+shared.lifecycleNumber ??= 0;
+
 // Деструктурируем только ссылочные структуры — флаги берём прямо из shared
 const { tasks, done, cache, pendingWaits } = shared;
 
@@ -270,6 +274,15 @@ async function runSingle(id: string, lifecycleNumber: number): Promise<void> {
           rejectInflight(error);
           break;
         }
+      }
+    } catch (error) {
+      // Review #27, замечание 1: stale function-when не должен зависать или отклонять
+      // новый lifecycle, а актуальная ошибка должна дойти до runTasks().
+      if (lifecycleNumber === shared.lifecycleNumber) {
+        tlog('fail', id, error);
+        rejectInflight(error);
+      } else {
+        resolveInflight();
       }
     } finally {
       // Чистим «полёт» в любом случае

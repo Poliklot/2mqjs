@@ -619,4 +619,18 @@ describe('очистка ожиданий задач', () => {
 
     expect(result).toBe('completed');
   });
+
+  it('возвращает ошибку function-when текущего lifecycle', async () => {
+    const whenError = new Error('current when failure');
+    const id = 'test:task-current-function-rejection';
+
+    registerTask({
+      id,
+      stage: id,
+      when: () => Promise.reject(whenError),
+      run: vi.fn(),
+    });
+
+    await expect(runTasks(id)).rejects.toBe(whenError);
+  });
 });
