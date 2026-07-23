@@ -142,11 +142,13 @@ describe('components: regression — existing happy paths', () => {
       order.push('boot');
     });
 
+    const load = vi.fn(() => Promise.resolve({ display, boot }));
+
     registerComponent({
       name,
       when: 'immediate',
       hasDisplay: true,
-      load: () => Promise.resolve({ display, boot }),
+      load,
     });
 
     runComponentLoader(root);
@@ -155,6 +157,7 @@ describe('components: regression — existing happy paths', () => {
     expect(display).toHaveBeenCalledWith(el);
     expect(boot).toHaveBeenCalledWith(el);
     expect(order).toEqual(['display', 'boot']);
+    expect(load).toHaveBeenCalledTimes(1);
   });
 
   it('hasDisplay + default: does not call default when hasDisplay is true', () => {
@@ -226,6 +229,24 @@ describe('components: regression — existing happy paths', () => {
     expect(observerInstances[0].unobserve).toHaveBeenCalledWith(el);
   });
 
+  it('visible: does not duplicate pending observation on repeated scans', () => {
+    const name = uniqueName('reg:visible-pending');
+    const { root, el } = createRootWithComponent(name);
+
+    registerComponent({
+      name,
+      when: 'visible',
+      load: () => ({ boot: vi.fn() }),
+    });
+
+    runComponentLoader(root);
+    runComponentLoader(root);
+
+    expect(observerInstances).toHaveLength(1);
+    expect(observerInstances[0].observe).toHaveBeenCalledTimes(1);
+    expect(observerInstances[0].observe).toHaveBeenCalledWith(el);
+  });
+
   it('interaction: attaches default triggers and boots once on event', () => {
     const name = uniqueName('reg:interaction');
     const { root, el } = createRootWithComponent(name);
@@ -286,6 +307,22 @@ describe('components: regression — existing happy paths', () => {
     listeners.get('pointerdown')!(new Event('pointerdown'));
     expect(boot).toHaveBeenCalledTimes(1);
   });
+
+  it('interaction: does not duplicate pending listeners on repeated scans', () => {
+    const name = uniqueName('reg:interaction-pending');
+    const { root, el } = createRootWithComponent(name);
+
+    registerComponent({
+      name,
+      when: 'interaction',
+      load: () => ({ boot: vi.fn() }),
+    });
+
+    runComponentLoader(root);
+    runComponentLoader(root);
+
+    expect(el.addEventListener).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe('issue #22: boot lifecycle states, retry, errors', () => {
@@ -326,7 +363,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(boot).toHaveBeenCalledWith(el);
   });
 
-  it('re-runs boot after throwing boot() via bootComponent without leaking throw', () => {
+  it('reports throwing sync boot() and preserves its throw for bootComponent', () => {
     const name = uniqueName('i22:throw-boot');
     const el = {
       getAttribute: () => name,
@@ -345,7 +382,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
       load: () => ({ boot }),
     });
 
-    expect(() => bootComponent(el)).not.toThrow();
+    expect(() => bootComponent(el)).toThrow('boot exploded');
     expect(attempt).toBe(1);
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError.mock.calls[0][0]).toBeInstanceOf(Error);
@@ -353,6 +390,24 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
 
     bootComponent(el);
     expect(attempt).toBe(2);
+  });
+
+  it('preserves a synchronous load() throw after reporting it', () => {
+    const name = uniqueName('i22:throw-load');
+    const { root } = createRootWithComponent(name);
+    const onError = vi.fn();
+    setComponentsErrorHandler(onError);
+
+    registerComponent({
+      name,
+      when: 'immediate',
+      load: () => {
+        throw new Error('load exploded');
+      },
+    });
+
+    expect(() => runComponentLoader(root)).toThrow('load exploded');
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 
   it('does not start a second load while first async boot is in progress', async () => {
@@ -449,5 +504,132 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     bootComponent(el);
     await flushMicrotasks();
     expect(boot).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries failed visible component through its original strategy', async () => {
+    const name = uniqueName('i22:visible-retry');
+    const { root, el } = createRootWithComponent(name);
+    const boot = vi.fn();
+    const onError = vi.fn();
+    let attempt = 0;
+    setComponentsErrorHandler(onError);
+
+    registerComponent({
+      name,
+      when: 'visible',
+      load: () => {
+        attempt += 1;
+        if (attempt === 1) return Promise.reject(new Error('chunk load failed'));
+        return Promise.resolve({ boot });
+      },
+    });
+
+    runComponentLoader(root);
+    observerInstances[0].callback(
+      [{ isIntersecting: true, target: el } as unknown as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    );
+    await flushMicrotasks();
+
+    runComponentLoader(root);
+
+    expect(observerInstances).toHaveLength(2);
+    expect(attempt).toBe(1);
+
+    observerInstances[1].callback(
+      [{ isIntersecting: true, target: el } as unknown as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    );
+    await flushMicrotasks();
+
+    expect(attempt).toBe(2);
+    expect(boot).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads hasDisplay module once, reports its rejection through hook, and retries full pipeline', async () => {
+    const name = uniqueName('i22:has-display-retry');
+    const { root, el } = createRootWithComponent(name);
+    const display = vi.fn();
+    const boot = vi.fn();
+    const onError = vi.fn();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let attempt = 0;
+    const load = vi.fn(() => {
+      attempt += 1;
+      if (attempt === 1) return Promise.reject(new Error('display chunk failed'));
+      return Promise.resolve({ display, boot });
+    });
+    setComponentsErrorHandler(onError);
+
+    registerComponent({
+      name,
+      when: 'immediate',
+      hasDisplay: true,
+      load,
+    });
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(display).not.toHaveBeenCalled();
+    expect(boot).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalled();
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(display).toHaveBeenCalledTimes(1);
+    expect(display).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledTimes(1);
+    expect(boot).toHaveBeenCalledWith(el);
+  });
+
+  it('migrates global singleton state created by the previous version', async () => {
+    const globalWithSymbols = globalThis as typeof globalThis & {
+      [key: symbol]: unknown;
+    };
+    const globalKey = Symbol.for('components.registry');
+    const currentState = globalWithSymbols[globalKey];
+    const name = uniqueName('i22:legacy-singleton');
+    const boot = vi.fn();
+    const legacyEl = {
+      getAttribute: () => name,
+    } as unknown as HTMLElement;
+    const freshEl = {
+      getAttribute: () => name,
+    } as unknown as HTMLElement;
+    const legacyInitialized = new WeakSet<Element>();
+    legacyInitialized.add(legacyEl);
+
+    globalWithSymbols[globalKey] = {
+      registry: new Map(),
+      initialized: legacyInitialized,
+      debug: { register: false, init: false },
+    };
+    vi.resetModules();
+
+    try {
+      const components = await import('../../src/components.js');
+      const root = {
+        querySelectorAll: () => [legacyEl, freshEl] as unknown as NodeListOf<HTMLElement>,
+      } as HTMLElement;
+
+      components.registerComponent({
+        name,
+        when: 'immediate',
+        load: () => ({ boot }),
+      });
+      components.runComponentLoader(root);
+
+      expect(boot).toHaveBeenCalledTimes(1);
+      expect(boot).toHaveBeenCalledWith(freshEl);
+    } finally {
+      globalWithSymbols[globalKey] = currentState;
+      vi.resetModules();
+    }
   });
 });

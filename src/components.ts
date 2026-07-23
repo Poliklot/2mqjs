@@ -58,28 +58,46 @@ export interface ComponentDefinition {
   events?: InteractionEvent[];
 }
 
-/** booting — in-flight; booted — успех; failed — можно retry */
-type BootState = 'booting' | 'booted' | 'failed';
+/** pending — ждёт стратегии; booting — in-flight; failed — можно retry */
+type BootState = 'pending' | 'booting' | 'booted' | 'failed';
+type ModuleResult = ComponentModule | Promise<ComponentModule>;
+
+interface BootLifecycle {
+  state: BootState;
+  module?: ModuleResult;
+  display?: Promise<ComponentModule>;
+}
 
 /* ---------- Singleton-хранилище ---------- */
 interface SharedState {
   registry: Map<string, ComponentDefinition>;
-  bootStates: WeakMap<Element, BootState>;
+  bootLifecycles: WeakMap<Element, BootLifecycle>;
   debug: { register: boolean; init: boolean };
   onError: ((error: unknown) => void) | null;
 }
 
+interface LegacySharedState {
+  initialized?: WeakSet<Element>;
+}
+
 const GLOBAL_KEY = Symbol.for('components.registry');
-const shared: SharedState =
+const shared =
   (globalThis as any)[GLOBAL_KEY] ??
   ((globalThis as any)[GLOBAL_KEY] = {
     registry: new Map(),
-    bootStates: new WeakMap(),
+    bootLifecycles: new WeakMap(),
     debug: { register: false, init: false },
     onError: null,
-  });
+    initialized: new WeakSet(),
+  }) as SharedState & LegacySharedState;
 
-const { registry, bootStates, debug } = shared;
+shared.registry ??= new Map();
+shared.bootLifecycles ??= new WeakMap();
+shared.debug ??= { register: false, init: false };
+shared.onError ??= null;
+shared.initialized ??= new WeakSet();
+
+const { registry, bootLifecycles, debug } = shared;
 
 /* ---------- Вспомогалка логирования ---------- */
 /**
@@ -137,52 +155,81 @@ export function registerComponent({
 
 /**
  * Запускает поиск по DOM и инициализирует компоненты по атрибуту data-component. Поддерживает ленивую инициализацию (intersection, interaction).
- * Retry: элемент в `failed` снова проходит boot при следующем вызове / `bootComponent` (без auto-retry).
+ * Retry: failed-элемент повторяет полный pipeline только при новом scan / `bootComponent` (без auto-retry).
  * @param $root Элемент, внутри которого нужно инициализировать компоненты (по умолчанию document.body)
  */
 export function runComponentLoader($root: HTMLElement = document.body): void {
-  const observer = new IntersectionObserver(entries => {
-    entries.forEach(entry => {
-      if (!entry.isIntersecting) return;
-      observer.unobserve(entry.target);
-      tryBoot(entry.target);
-    });
-  });
+  let observer: IntersectionObserver | null = null;
+
+  const observe = (el: HTMLElement): void => {
+    if (!observer) {
+      observer = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (!entry.isIntersecting) return;
+          observer?.unobserve(entry.target);
+
+          const def = getComponentDefinition(entry.target);
+          const lifecycle = getLifecycle(entry.target);
+          if (def && lifecycle) tryBoot(entry.target, def, lifecycle);
+        });
+      });
+    }
+
+    observer.observe(el);
+  };
 
   $root.querySelectorAll<HTMLElement>('[data-component]').forEach(el => {
-    const name = el.getAttribute('data-component');
-    const def = name ? registry.get(name) : undefined;
+    const def = getComponentDefinition(el);
     if (!def) return;
 
-    const state = bootStates.get(el);
-    if (state === 'booting' || state === 'booted') return;
-    if (state === 'failed') {
-      tryBoot(el);
-      return;
-    }
+    const lifecycle = getLifecycle(el);
+    if (lifecycle && lifecycle.state !== 'failed') return;
 
-    const { load, when, hasDisplay, events } = def;
-
-    log('init', name!, { strategy: when });
-
-    if (hasDisplay) {
-      const maybePromise = load();
-
-      if (maybePromise instanceof Promise) {
-        maybePromise.then(mod => mod.display?.(el)).catch(console.error);
-      } else {
-        maybePromise.display?.(el);
-      }
-    }
-
-    if (when === 'immediate') {
-      tryBoot(el);
-    } else if (when === 'visible') {
-      observer.observe(el);
-    } else if (when === 'interaction') {
-      attachInteractionListeners(el, events);
-    }
+    scheduleComponent(el, def, observe);
   });
+}
+
+function getComponentDefinition(el: Element): ComponentDefinition | undefined {
+  const name = el.getAttribute('data-component');
+  return name ? registry.get(name) : undefined;
+}
+
+function createLifecycle(el: Element): BootLifecycle {
+  const lifecycle: BootLifecycle = { state: 'pending' };
+  bootLifecycles.set(el, lifecycle);
+  return lifecycle;
+}
+
+function getLifecycle(el: Element): BootLifecycle | undefined {
+  const lifecycle = bootLifecycles.get(el);
+  if (lifecycle || !shared.initialized?.has(el)) return lifecycle;
+
+  // Legacy WeakSet не различает прошлый success и failure: выбираем безопасный
+  // вариант без повторной инициализации уже существующего DOM-элемента.
+  const migratedLifecycle: BootLifecycle = { state: 'booted' };
+  bootLifecycles.set(el, migratedLifecycle);
+  return migratedLifecycle;
+}
+
+function scheduleComponent(
+  el: HTMLElement,
+  def: ComponentDefinition,
+  observe: (el: HTMLElement) => void,
+): void {
+  const lifecycle = createLifecycle(el);
+  const name = el.getAttribute('data-component');
+
+  log('init', name!, { strategy: def.when });
+
+  if (def.hasDisplay) startDisplay(el, def, lifecycle);
+
+  if (def.when === 'immediate') {
+    tryBoot(el, def, lifecycle);
+  } else if (def.when === 'visible') {
+    observe(el);
+  } else {
+    attachInteractionListeners(el, def, lifecycle);
+  }
 }
 
 /**
@@ -192,14 +239,15 @@ export function runComponentLoader($root: HTMLElement = document.body): void {
  */
 function attachInteractionListeners(
   el: HTMLElement,
-  events: InteractionEvent[] | undefined
+  def: ComponentDefinition,
+  lifecycle: BootLifecycle,
 ): void {
   const triggers: InteractionEvent[] =
-    events && events.length ? events : ['click', 'focus', 'mouseenter'];
+    def.events && def.events.length ? def.events : ['click', 'focus', 'mouseenter'];
 
   const handler = () => {
     triggers.forEach(evt => el.removeEventListener(evt, handler));
-    tryBoot(el);
+    tryBoot(el, def, lifecycle);
   };
 
   triggers.forEach(evt => el.addEventListener(evt, handler, { once: true }));
@@ -210,58 +258,110 @@ function attachInteractionListeners(
  * @param el DOM-элемент с атрибутом data-component
  */
 export function bootComponent(el: Element): void {
-  tryBoot(el);
+  const def = getComponentDefinition(el);
+  if (!def) return;
+
+  let lifecycle = getLifecycle(el);
+  if (!lifecycle || lifecycle.state === 'failed') {
+    lifecycle = createLifecycle(el);
+    if (def.hasDisplay) startDisplay(el, def, lifecycle);
+  }
+
+  tryBoot(el, def, lifecycle);
 }
 
 /**
  * Внутренняя функция: вызывает boot или default (если hasDisplay не указан)
  * @param el DOM-элемент с атрибутом data-component
  */
-function tryBoot(el: Element): void {
-  const state = bootStates.get(el);
-  if (state === 'booting' || state === 'booted') return;
+function tryBoot(
+  el: Element,
+  def: ComponentDefinition,
+  lifecycle: BootLifecycle,
+): void {
+  if (bootLifecycles.get(el) !== lifecycle) return;
+  if (lifecycle.state === 'booting' || lifecycle.state === 'booted' || lifecycle.state === 'failed') return;
 
-  const name = el.getAttribute('data-component');
-  const def = name ? registry.get(name) : undefined;
-  if (!def) return;
+  lifecycle.state = 'booting';
+  log('init', el.getAttribute('data-component')!, 'boot');
 
-  bootStates.set(el, 'booting');
-
-  const { load, hasDisplay } = def;
-
-  log('init', name!, 'boot');
-
-  const onFail = (error: unknown): void => {
-    bootStates.set(el, 'failed');
-    reportError(error);
-  };
-
-  const handle = (mod: ComponentModule) => {
-    try {
-      if (mod.boot) {
-        mod.boot(el);
-      } else if (!hasDisplay && typeof mod.default === 'function') {
-        mod.default(el);
-      }
-      bootStates.set(el, 'booted');
-    } catch (error) {
-      onFail(error);
-    }
-  };
-
-  let result: ComponentModule | Promise<ComponentModule>;
+  let result: ModuleResult;
   try {
-    result = load();
+    result = getModule(def, lifecycle);
   } catch (error) {
-    onFail(error);
+    fail(el, lifecycle, error);
+    throw error;
+  }
+
+  const handle = (mod: ComponentModule): void => {
+    if (bootLifecycles.get(el) !== lifecycle || lifecycle.state === 'failed') return;
+
+    if (mod.boot) {
+      mod.boot(el);
+    } else if (!def.hasDisplay && typeof mod.default === 'function') {
+      mod.default(el);
+    }
+
+    lifecycle.state = 'booted';
+    shared.initialized?.add(el);
+  };
+
+  if (result instanceof Promise) {
+    const ready = lifecycle.display ?? result;
+    ready.then(handle).catch(error => fail(el, lifecycle, error));
     return;
   }
 
-  if (result instanceof Promise) {
-    result.then(handle).catch(onFail);
-  } else {
+  try {
     handle(result);
+  } catch (error) {
+    fail(el, lifecycle, error);
+    throw error;
   }
+}
+
+function startDisplay(
+  el: Element,
+  def: ComponentDefinition,
+  lifecycle: BootLifecycle,
+): void {
+  let result: ModuleResult;
+  try {
+    result = getModule(def, lifecycle);
+  } catch (error) {
+    fail(el, lifecycle, error);
+    throw error;
+  }
+
+  if (result instanceof Promise) {
+    lifecycle.display = result.then(mod => {
+      if (bootLifecycles.get(el) === lifecycle) mod.display?.(el);
+      return mod;
+    });
+    lifecycle.display.catch(error => fail(el, lifecycle, error));
+    return;
+  }
+
+  try {
+    result.display?.(el);
+  } catch (error) {
+    fail(el, lifecycle, error);
+    throw error;
+  }
+}
+
+function getModule(
+  def: ComponentDefinition,
+  lifecycle: BootLifecycle,
+): ModuleResult {
+  if (lifecycle.module === undefined) lifecycle.module = def.load();
+  return lifecycle.module;
+}
+
+function fail(el: Element, lifecycle: BootLifecycle, error: unknown): void {
+  if (bootLifecycles.get(el) !== lifecycle || lifecycle.state === 'failed') return;
+  lifecycle.state = 'failed';
+  reportError(error);
 }
 
 /**
