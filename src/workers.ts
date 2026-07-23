@@ -77,8 +77,10 @@ export function createWorker<IN extends Msg, OUT extends Msg>(
 ) {
     self.onmessage = (e: MessageEvent<IN>) => {
         const { port, payload } = e.data;
-        const fn = handlers[port as keyof typeof handlers];
-        if (fn) void fn(payload);
+        const fn = Object.prototype.hasOwnProperty.call(handlers, port)
+            ? handlers[port as keyof typeof handlers]
+            : undefined;
+        if (typeof fn === 'function') void fn(payload);
     };
 
     const postPort = <K extends OUT['port']>(
