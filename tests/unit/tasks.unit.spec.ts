@@ -572,4 +572,51 @@ describe('очистка ожиданий задач', () => {
 
     expect(log).toHaveBeenCalled();
   });
+
+  it('поддерживает состояние, созданное предыдущей копией модуля', async () => {
+    const stateKey = Symbol.for('2mqjs.tasks');
+    const currentState = (globalThis as Record<PropertyKey, unknown>)[stateKey];
+
+    (globalThis as Record<PropertyKey, unknown>)[stateKey] = {
+      tasks: new Map(),
+      done: new Set(),
+      cache: new Map(),
+      running: false,
+      debug: false,
+    };
+
+    try {
+      vi.resetModules();
+      const previousStateTasks = await import('../../src/tasks.js');
+
+      expect(() => previousStateTasks.resetTasks()).not.toThrow();
+    } finally {
+      (globalThis as Record<PropertyKey, unknown>)[stateKey] = currentState;
+    }
+  });
+
+  it('завершает старый запуск, если function-when отклонён после reset', async () => {
+    let rejectWhen!: (error: Error) => void;
+    const id = 'test:task-function-rejection-reset';
+
+    registerTask({
+      id,
+      stage: id,
+      when: () => new Promise<boolean>((_resolve, reject) => {
+        rejectWhen = reject;
+      }),
+      run: vi.fn(),
+    });
+
+    const pendingRun = runTasks(id);
+    resetTasks();
+    rejectWhen(new Error('stale when failure'));
+
+    const result = await Promise.race([
+      pendingRun.then(() => 'completed', () => 'rejected'),
+      new Promise<string>(resolve => setTimeout(() => resolve('pending'), 50)),
+    ]);
+
+    expect(result).toBe('completed');
+  });
 });

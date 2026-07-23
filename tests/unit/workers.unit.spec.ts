@@ -13,7 +13,7 @@ describe('очистка worker', () => {
 
     await registerWorker({
       name: 'test:worker-cleanup',
-      src: worker,
+      src: () => worker,
     });
 
     terminateWorker('test:worker-cleanup');
@@ -30,8 +30,8 @@ describe('очистка worker', () => {
       terminate: vi.fn(),
     } as unknown as Worker;
 
-    await registerWorker({ name: 'test:worker-alias:first', src: worker });
-    await registerWorker({ name: 'test:worker-alias:second', src: worker });
+    await registerWorker({ name: 'test:worker-alias:first', src: () => worker });
+    await registerWorker({ name: 'test:worker-alias:second', src: () => worker });
 
     terminateWorker('test:worker-alias:first');
     const postsBeforeAliasSend = vi.mocked(worker.postMessage).mock.calls.length;
@@ -39,5 +39,21 @@ describe('очистка worker', () => {
     sendToWorker('test:worker-alias:second', 'after-terminate');
 
     expect(worker.postMessage).toHaveBeenCalledTimes(postsBeforeAliasSend);
+  });
+
+  it('вызывает фабрику worker только один раз', async () => {
+    const worker = {
+      addEventListener: vi.fn(),
+      postMessage: vi.fn(),
+      terminate: vi.fn(),
+    } as unknown as Worker;
+    const createWorker = vi.fn(() => worker);
+    const name = 'test:worker-factory-once';
+
+    await registerWorker({ name, src: createWorker });
+    terminateWorker(name);
+
+    expect(createWorker).toHaveBeenCalledOnce();
+    expect(worker.terminate).toHaveBeenCalledOnce();
   });
 });
