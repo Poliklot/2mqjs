@@ -41,7 +41,7 @@ $run.addEventListener('click', async () => {
   $terminates.textContent = '0';
 
   console.group(`2mqjs worker registry cleanup · запуск ${runs}`);
-  await registerWorker({ name, src: worker });
+  await registerWorker({ name, src: () => worker });
   terminateWorker(name);
   emitPort(`${name}:port`, 'after-terminate');
 
