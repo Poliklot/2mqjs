@@ -1,7 +1,9 @@
 // scripts/postbuild.js
 import fs from 'fs';
+import os from 'node:os';
 import path from 'node:path';
-import ts from 'typescript';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const distDirectory = 'dist';
 const compat = `
@@ -17,30 +19,49 @@ fs.writeFileSync(path.join(distDirectory, 'types-compat.d.ts'), compat);
 // Удаляем комментарии только из публикуемого runtime JS после основного tsc emit:
 // декларации уже созданы отдельно и сохраняют JSDoc для подсказок редактора.
 const runtimeFiles = fs.readdirSync(distDirectory).filter(file => file.endsWith('.js'));
-for (const runtimeFile of runtimeFiles) {
-  const runtimePath = path.join(distDirectory, runtimeFile);
-  const source = fs.readFileSync(runtimePath, 'utf8');
-  const result = ts.transpileModule(source, {
-    fileName: runtimeFile,
-    reportDiagnostics: true,
-    compilerOptions: {
-      allowJs: true,
-      module: ts.ModuleKind.ESNext,
-      removeComments: true,
-      target: ts.ScriptTarget.ES2022,
-    },
-  });
+const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), '2mqjs-postbuild-'));
+const typescriptCli = fileURLToPath(
+  new URL('../node_modules/typescript/bin/tsc', import.meta.url),
+);
 
-  const errors = result.diagnostics?.filter(
-    diagnostic => diagnostic.category === ts.DiagnosticCategory.Error,
+try {
+  const result = spawnSync(
+    process.execPath,
+    [
+      typescriptCli,
+      '--ignoreConfig',
+      ...runtimeFiles.map(file => path.join(distDirectory, file)),
+      '--allowJs',
+      '--removeComments',
+      '--outDir',
+      temporaryDirectory,
+      '--target',
+      'ES2022',
+      '--module',
+      'ESNext',
+      '--skipLibCheck',
+      '--declaration',
+      'false',
+      '--sourceMap',
+      'false',
+    ],
+    { encoding: 'utf8' },
   );
-  if (errors?.length) {
+
+  if (result.status !== 0) {
     throw new Error(
-      `Failed to strip runtime comments from ${runtimeFile}: ${errors.map(error => error.code).join(', ')}`,
+      `Failed to strip runtime comments:\n${result.stderr || result.stdout}`,
     );
   }
 
-  fs.writeFileSync(runtimePath, result.outputText);
+  for (const runtimeFile of runtimeFiles) {
+    fs.copyFileSync(
+      path.join(temporaryDirectory, runtimeFile),
+      path.join(distDirectory, runtimeFile),
+    );
+  }
+} finally {
+  fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 }
 
 console.log(`[postbuild] runtime comments removed from ${runtimeFiles.length} JS files; declarations preserved`);
