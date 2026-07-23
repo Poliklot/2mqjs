@@ -190,6 +190,20 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
     mutationQueueHead = 0;
   }
 
+  function postMutation(mutation: WorkerMutation<S>): void {
+    const operationId = nextOperationId++;
+    const message = mutation as WorkerOperation<S>;
+    message.operationId = operationId;
+    pendingOperationIds.add(operationId);
+
+    try {
+      worker.postMessage(message);
+    } catch (error) {
+      pendingOperationIds.delete(operationId);
+      console.error('[store] mutation error:', error);
+    }
+  }
+
   function processMutationQueue(): void {
     if (!isReady || canonicalState === undefined) return;
 
@@ -202,31 +216,30 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
       }
 
       mutationQueueHead += 1;
-      const operationId = nextOperationId++;
-      let message: WorkerOperation<S>;
+      let mutation: WorkerMutation<S>;
 
       try {
-        const base =
+        mutation =
           pending.kind === 'fn' ? pending.createMessage(canonicalState) : pending.op;
-        message = base as WorkerOperation<S>;
-        message.operationId = operationId;
       } catch (error) {
         console.error('[store] mutation error:', error);
         continue;
       }
 
-      pendingOperationIds.add(operationId);
-
-      try {
-        worker.postMessage(message);
-      } catch (error) {
-        pendingOperationIds.delete(operationId);
-        console.error('[store] mutation error:', error);
-      }
+      postMutation(mutation);
     }
 
     mutationQueue = [];
     mutationQueueHead = 0;
+  }
+
+  function enqueueOperation(operation: WorkerMutation<S>): void {
+    if (isReady && canonicalState !== undefined && mutationQueue.length === 0) {
+      postMutation(operation);
+      return;
+    }
+
+    enqueueMutation({ kind: 'op', op: operation });
   }
 
   function enqueueMutation(mutation: QueuedMutation<S>): void {
@@ -377,16 +390,16 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
           }),
         });
       } else {
-        enqueueMutation({ kind: 'op', op: { type: 'op:set', path, value } });
+        enqueueOperation({ type: 'op:set', path, value });
       }
     },
     merge(patch) {
       dlog('ops', 'merge', patch);
-      enqueueMutation({ kind: 'op', op: { type: 'op:merge', patch } });
+      enqueueOperation({ type: 'op:merge', patch });
     },
     add(path, item) {
       dlog('ops', 'add', {path, item});
-      enqueueMutation({ kind: 'op', op: { type: 'op:add', path, item } });
+      enqueueOperation({ type: 'op:add', path, item });
     },
     remove(path, itemOrPredicate) {
       dlog('ops', 'remove', {path, itemOrPredicate});
@@ -403,15 +416,12 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
           },
         });
       } else {
-        enqueueMutation({
-          kind: 'op',
-          op: { type: 'op:remove', path, item: itemOrPredicate },
-        });
+        enqueueOperation({ type: 'op:remove', path, item: itemOrPredicate });
       }
     },
     del(path) {
       dlog('ops', 'del', path);
-      enqueueMutation({ kind: 'op', op: { type: 'op:del', path } });
+      enqueueOperation({ type: 'op:del', path });
     },
     update(path, fn) {
       dlog('ops', 'update', path);

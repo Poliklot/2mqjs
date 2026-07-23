@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Проверка очереди updater-изменений Store" />
+    <title>Issue #20 · Очередь updater Store</title>
+    <link rel="stylesheet" href="../../../shared/styles.css" />
+  </head>
+  <body>
+    <main class="manual-tests">
+      <a class="manual-tests__back" href="../../../">← Ручные тесты</a>
+
+      <header class="manual-tests__header manual-tests__header--compact">
+        <p class="manual-tests__eyebrow">Issue #20 / Store updater</p>
+        <h1>Последовательные updater-изменения</h1>
+        <p class="manual-tests__intro">
+          Сценарий использует реальный <code>Store → Web Worker → Store</code> и выполняет два
+          updater-вызова до первого ответа Worker.
+        </p>
+      </header>
+
+      <section class="manual-steps" aria-labelledby="steps-title">
+        <h2 id="steps-title">Как проверить вручную</h2>
+        <ol>
+          <li>Откройте DevTools → Console.</li>
+          <li>Нажмите «Выполнить два updater».</li>
+          <li>Итоговое значение должно стать равно 2.</li>
+        </ol>
+      </section>
+
+      <section class="cleanup-test" aria-labelledby="test-title">
+        <div class="cleanup-test__summary">
+          <p class="cleanup-test__index">01</p>
+          <div>
+            <h2 id="test-title">update + update до ответа Worker</h2>
+            <p>Оба вызова должны примениться к подтверждённому состоянию без потери первого изменения.</p>
+          </div>
+        </div>
+
+        <p class="cleanup-test__status" data-state="idle" data-testid="store-updater-status">
+          Проверка не запускалась
+        </p>
+
+        <dl class="cleanup-test__metrics" aria-live="polite">
+          <div>
+            <dt>Итоговое значение</dt>
+            <dd data-testid="store-count">0</dd>
+          </div>
+        </dl>
+
+        <button class="cleanup-test__run" type="button">Выполнить два updater</button>
+      </section>
+
+      <script type="module" src="./main.ts"></script>
+    </main>
+  </body>
+</html>
