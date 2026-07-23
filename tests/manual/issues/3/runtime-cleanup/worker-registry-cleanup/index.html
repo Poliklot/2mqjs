@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Проверка удаления terminated worker из внутренних registry/set" />
+    <title>Issue #3 · Очистка registry worker</title>
+    <link rel="stylesheet" href="../../../../shared/styles.css" />
+  </head>
+  <body>
+    <main class="manual-tests">
+      <a class="manual-tests__back" href="../">← Сценарии issue #3</a>
+
+      <header class="manual-tests__header manual-tests__header--compact">
+        <p class="manual-tests__eyebrow">Issue #3 / очистка registry worker</p>
+        <h1>Очистка registry worker</h1>
+        <p class="manual-tests__intro">
+          Сценарий регистрирует worker, вызывает <code>terminateWorker()</code> и затем отправляет
+          обычный <code>emitPort()</code>.
+        </p>
+      </header>
+
+      <section class="manual-steps" aria-labelledby="steps-title">
+        <h2 id="steps-title">Как проверить вручную</h2>
+        <ol>
+          <li>Откройте DevTools → Console.</li>
+          <li>Нажмите «Проверить worker registry».</li>
+          <li>После terminate повторный emit не должен вызывать <code>worker.postMessage()</code>.</li>
+        </ol>
+      </section>
+
+      <section class="cleanup-test" aria-labelledby="test-title">
+        <div class="cleanup-test__summary">
+          <p class="cleanup-test__index">07</p>
+          <div>
+            <h2 id="test-title">registerWorker → terminateWorker → emitPort</h2>
+            <p>Проверка показывает, остался ли завершённый worker во внутреннем ports-set.</p>
+          </div>
+        </div>
+
+        <p class="cleanup-test__status" data-state="idle" data-testid="worker-registry-status">
+          Проверка не запускалась
+        </p>
+
+        <dl class="cleanup-test__metrics" aria-live="polite">
+          <div>
+            <dt>Вызовов postMessage после terminate</dt>
+            <dd data-testid="worker-registry-posts">0</dd>
+          </div>
+          <div>
+            <dt>Вызовов terminate</dt>
+            <dd data-testid="worker-registry-terminates">0</dd>
+          </div>
+        </dl>
+
+        <button class="cleanup-test__run" type="button">Проверить worker registry</button>
+        <p class="cleanup-test__hint">До исправления postMessage после terminate виден в Console.</p>
+      </section>
+
+      <script type="module" src="./main.ts"></script>
+    </main>
+  </body>
+</html>

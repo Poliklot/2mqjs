@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Ручные тесты очистки runtime-ресурсов для issue #3" />
+    <title>Issue #3 · Очистка runtime-ресурсов</title>
+    <link rel="stylesheet" href="../../../shared/styles.css" />
+  </head>
+  <body>
+    <main class="manual-tests">
+      <a class="manual-tests__back" href="../../../">← Все issue</a>
+
+      <header class="manual-tests__header">
+        <p class="manual-tests__eyebrow">Issue #3</p>
+        <h1>Очистка runtime-ресурсов</h1>
+        <p class="manual-tests__intro">Проверки очистки DOM-listener, port-подписок, таймеров и worker-ссылок.</p>
+      </header>
+
+      <nav class="test-list" aria-label="Сценарии issue #3">
+        <a class="test-list__item" href="./resize-subscriptions/">
+          <span class="test-list__index">01</span>
+          <span class="test-list__title">Resize-подписки</span>
+          <span class="test-list__meta">подключение / отключение</span>
+        </a>
+        <a class="test-list__item" href="./once-port-replay/">
+          <span class="test-list__index">02</span>
+          <span class="test-list__title">Replay oncePort</span>
+          <span class="test-list__meta">снимок / последующий emit</span>
+        </a>
+        <a class="test-list__item" href="./task-timeout-reset/">
+          <span class="test-list__index">03</span>
+          <span class="test-list__title">Сброс timeout задачи</span>
+          <span class="test-list__meta">запуск / сброс / таймер</span>
+        </a>
+        <a class="test-list__item" href="./task-all-ports-cleanup/">
+          <span class="test-list__index">04</span>
+          <span class="test-list__title">Очистка allPorts задачи</span>
+          <span class="test-list__meta">порты / выполнение / отписка</span>
+        </a>
+        <a class="test-list__item" href="./task-port-cleanup/">
+          <span class="test-list__index">05</span>
+          <span class="test-list__title">Очистка port задачи</span>
+          <span class="test-list__meta">порт / выполнение / отписка</span>
+        </a>
+        <a class="test-list__item" href="./task-worker-condition-cleanup/">
+          <span class="test-list__index">06</span>
+          <span class="test-list__title">Очистка worker-условия задачи</span>
+          <span class="test-list__meta">готовность / выполнение / отписка</span>
+        </a>
+        <a class="test-list__item" href="./worker-registry-cleanup/">
+          <span class="test-list__index">07</span>
+          <span class="test-list__title">Очистка registry worker</span>
+          <span class="test-list__meta">завершение / emit / postMessage</span>
+        </a>
+        <a class="test-list__item" href="./task-data-reset/">
+          <span class="test-list__index">08</span>
+          <span class="test-list__title">Сброс data-ожидания задачи</span>
+          <span class="test-list__meta">запуск / сброс / polling</span>
+        </a>
+        <a class="test-list__item" href="./task-lifecycle-reset/">
+          <span class="test-list__index">09</span>
+          <span class="test-list__title">Сброс lifecycle задачи</span>
+          <span class="test-list__meta">function-when / retry / сброс</span>
+        </a>
+      </nav>
+    </main>
+  </body>
+</html>

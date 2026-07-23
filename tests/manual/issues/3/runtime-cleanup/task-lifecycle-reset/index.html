@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Проверка инвалидизации function-when и отмены retry-delay через resetTasks" />
+    <title>Issue #3 · Сброс lifecycle задачи</title>
+    <link rel="stylesheet" href="../../../../shared/styles.css" />
+  </head>
+  <body>
+    <main class="manual-tests">
+      <a class="manual-tests__back" href="../">← Сценарии issue #3</a>
+
+      <header class="manual-tests__header manual-tests__header--compact">
+        <p class="manual-tests__eyebrow">Issue #3 / сброс lifecycle задачи</p>
+        <h1>Инвалидизация ожидания и retry</h1>
+        <p class="manual-tests__intro">
+          Сценарий проверяет поздний результат пользовательского <code>function-when</code> и
+          ожидающий <code>retry-delay</code> после вызова <code>resetTasks()</code>.
+        </p>
+      </header>
+
+      <section class="manual-steps" aria-labelledby="steps-title">
+        <h2 id="steps-title">Как проверить вручную</h2>
+        <ol>
+          <li>Откройте DevTools → Console.</li>
+          <li>Нажмите «Проверить сброс lifecycle».</li>
+          <li>Function-when не должен запустить задачу, а retry не должен выполнить вторую попытку.</li>
+        </ol>
+      </section>
+
+      <section class="cleanup-test" aria-labelledby="test-title">
+        <div class="cleanup-test__summary">
+          <p class="cleanup-test__index">09</p>
+          <div>
+            <h2 id="test-title">runTasks → resetTasks → позднее завершение</h2>
+            <p>Оба старых lifecycle должны завершиться без запуска нового пользовательского кода.</p>
+          </div>
+        </div>
+
+        <p class="cleanup-test__status" data-state="idle" data-testid="task-lifecycle-status">
+          Проверка не запускалась
+        </p>
+
+        <dl class="cleanup-test__metrics" aria-live="polite">
+          <div>
+            <dt>Function-when: вызовов Task.run</dt>
+            <dd data-testid="task-function-runs">0</dd>
+          </div>
+          <div>
+            <dt>Retry: попыток Task.run</dt>
+            <dd data-testid="task-retry-runs">0</dd>
+          </div>
+        </dl>
+
+        <button class="cleanup-test__run" type="button">Проверить сброс lifecycle</button>
+        <p class="cleanup-test__hint">Ожидаемый результат: 0 запусков function-when и 1 попытка retry-задачи.</p>
+      </section>
+
+      <script type="module" src="./main.ts"></script>
+    </main>
+  </body>
+</html>

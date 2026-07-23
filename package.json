@@ -70,9 +70,13 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "npm run clean && tsc && node scripts/postbuild.js",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "vitest run tests/unit",
+    "test:e2e": "playwright test",
+    "test:manual": "vite tests/manual --host 127.0.0.1 --port 4173 --strictPort",
     "dev": "tsc --watch",
     "check": "npm run release:check",
-    "release:check": "npm run build && npm run smoke:package && npm run pack:dry-run",
+    "release:check": "npm run test && npm run build && npm run smoke:package && npm run pack:dry-run",
     "smoke:package": "node scripts/smoke-package.mjs",
     "pack:dry-run": "npm_config_cache=/tmp/2mqjs-npm-cache npm pack --dry-run",
     "prepublishOnly": "npm run release:check"
@@ -93,7 +97,10 @@
     "access": "public"
   },
   "devDependencies": {
-    "typescript": "^7.0.2"
+    "@playwright/test": "^1.61.0",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.3",
+    "vitest": "^3.2.7"
   },
   "keywords": [
     "web-performance",

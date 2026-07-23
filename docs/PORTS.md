@@ -47,7 +47,7 @@ offPort('cart:add', handler);
 | `emitPort(event, data?)` | main, worker | Отправить событие в шину                                           |
 | `onPort(event, fn)`      | main, worker | Подписаться на событие, вернуть функцию отписки                    |
 | `offPort(event, fn)`     | main, worker | Отписаться от события                                              |
-| `oncePort(event, fn)`    | main, worker | Подписаться один раз (автоматическая отписка после первого вызова) |
+| `oncePort(event, fn)`    | main, worker | Подписаться один раз и вернуть функцию досрочной отписки           |
 | `setPortsDebug(true)`    | main, worker | Включить отладочное логирование                                    |
 
 > В main: `import { emitPort } from '2mqjs/ports'`
