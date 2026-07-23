@@ -14,20 +14,23 @@ export interface NormalizedPersist {
   keys?: string[];
 }
 
-type In<S> =
-  | { type: 'init'; name: string; initial: S; persist: NormalizedPersist | false }
-  | { type: 'get' }
+type Mutation<S> =
   | { type: 'op:set'; path: string; value: unknown }
   | { type: 'op:merge'; patch: Partial<S> }
   | { type: 'op:add'; path: string; item: unknown }
-  | { type: 'op:remove'; path: string; item: unknown | ((x: any) => boolean) }
+  | { type: 'op:remove'; path: string; item: unknown }
   | { type: 'op:del'; path: string };
+
+type In<S> =
+  | { type: 'init'; name: string; initial: S; persist: NormalizedPersist | false }
+  | { type: 'get' }
+  | (Mutation<S> & { operationId: number });
 
 type Out<S> =
   | { type: 'ready' }
-  | { type: 'state'; state: S }
+  | { type: 'state'; state: S; operationId?: number }
   | { type: 'persist:ls:set'; storageKey: string; json: string }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string; operationId?: number };
 
 let NAME = 'store';
 let STATE: any = {};
@@ -45,11 +48,11 @@ self.addEventListener('message', (ev: MessageEvent<In<any>>) => {
         break;
       case 'op:set':
         STATE = setAtPath(STATE, msg.path, msg.value);
-        postState();
+        postState(msg.operationId);
         break;
       case 'op:merge':
         STATE = deepMerge(STATE, msg.patch);
-        postState();
+        postState(msg.operationId);
         break;
       case 'op:add': {
         const arr = getAtPath(STATE, msg.path);
@@ -57,27 +60,29 @@ self.addEventListener('message', (ev: MessageEvent<In<any>>) => {
           ? arr.some((x: any) => x === msg.item) ? arr : [...arr, msg.item]
           : [msg.item];
         STATE = setAtPath(STATE, msg.path, next);
-        postState();
+        postState(msg.operationId);
         break;
       }
       case 'op:remove': {
         const arr = getAtPath(STATE, msg.path);
-        const pred =
-          typeof msg.item === 'function'
-            ? (msg.item as (x: any) => boolean)
-            : (x: any) => x === msg.item;
-        const next = Array.isArray(arr) ? arr.filter((x: any) => !pred(x)) : arr;
+        const next = Array.isArray(arr)
+          ? arr.filter((x: any) => x !== msg.item)
+          : arr;
         STATE = setAtPath(STATE, msg.path, next);
-        postState();
+        postState(msg.operationId);
         break;
       }
       case 'op:del':
         STATE = deleteAtPath(STATE, msg.path);
-        postState();
+        postState(msg.operationId);
         break;
     }
   } catch (e: any) {
-    post<Out<any>>({ type: 'error', message: String(e?.message || e) });
+    post<Out<any>>({
+      type: 'error',
+      message: String(e?.message || e),
+      operationId: 'operationId' in msg ? msg.operationId : undefined,
+    });
   }
 });
 
@@ -102,8 +107,8 @@ async function onInit(msg: Extract<In<any>, { type: 'init' }>) {
   post<Out<any>>({ type: 'ready' });
 }
 
-function postState() {
-  post<Out<any>>({ type: 'state', state: STATE });
+function postState(operationId?: number) {
+  post<Out<any>>({ type: 'state', state: STATE, operationId });
   if (PERSIST) persistSave(STATE, PERSIST, NAME);
 }
 
