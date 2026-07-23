@@ -83,9 +83,6 @@ const shared: TaskState =
     debug: false,
   });
 
-// Поддерживаем singleton, созданный более ранней копией модуля на той же странице.
-shared.lifecycleNumber ??= 0;
-
 // Деструктурируем только ссылочные структуры — флаги берём прямо из shared
 const { tasks, done, cache, pendingWaits } = shared;
 
