@@ -224,7 +224,7 @@ setStoreDebug({ ops: true });       // логировать только опе�
 * `ops` — вызовы `set/merge/add/remove/del/update`;
 * `persist` — события сохранения.
 
-Ошибки воркера логируются в консоль как `[store] worker error`. 
+Ошибки воркера логируются в консоль как `[store] worker error`.
 Ошибка внутри updater/predicate логируется как `[store] mutation error`; ошибочная мутация пропускается, а очередь продолжает работу.
 
 ---
