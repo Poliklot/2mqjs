@@ -75,11 +75,14 @@ export type Msg = { port: string; payload?: unknown };
 export function createWorker<IN extends Msg, OUT extends Msg>(
   handlers: Record<IN['port'], (p: IN['payload']) => void | Promise<void>>,
 ) {
+    const handlerMap = new Map<string, (payload: IN['payload']) => void | Promise<void>>(
+        Object.entries(handlers),
+    );
+
     self.onmessage = (e: MessageEvent<IN>) => {
         const { port, payload } = e.data;
-        const fn = Object.prototype.hasOwnProperty.call(handlers, port)
-            ? handlers[port as keyof typeof handlers]
-            : undefined;
+        if (!handlerMap.has(port)) return;
+        const fn = handlerMap.get(port);
         if (typeof fn === 'function') void fn(payload);
     };
 
