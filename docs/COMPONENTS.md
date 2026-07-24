@@ -55,7 +55,7 @@ export type InitStrategy = 'immediate' | 'visible' | 'interaction';
 | `booting` / `booted` | No-op |
 | `failed` | Ожидает явного retry |
 
-**Retry policy:** без auto-retry. Ошибка load/display создаёт новый lifecycle на следующем scan. Ошибка boot повторяет только boot на уже готовом module. `bootComponent` обходит strategy, но ждёт display.
+**Retry policy:** без auto-retry. Любая ошибка (load/display/boot) → `failed`; следующий scan / `bootComponent` создаёт новый lifecycle и полный pipeline `load → display → boot`. Внутри одной попытки `hasDisplay` грузит module один раз. `bootComponent` обходит strategy, но ждёт display.
 
 ---
 

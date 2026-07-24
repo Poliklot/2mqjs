@@ -845,8 +845,8 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     expect(boot).toHaveBeenCalledWith(el);
   });
 
-  it('hasDisplay: boot retry не вызывает load и display повторно', () => {
-    const name = uniqueName('i22:boot-only-retry');
+  it('hasDisplay: после boot fail retry заново load + display + boot', () => {
+    const name = uniqueName('i22:full-retry-after-boot-fail');
     const { root, el } = createRootWithComponent(name);
     const display = vi.fn();
     const boot = vi.fn().mockImplementationOnce(() => {
@@ -860,8 +860,9 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     expect(() => runComponentLoader(root)).toThrow('boot failed');
     runComponentLoader(root);
 
-    expect(load).toHaveBeenCalledTimes(1);
-    expect(display).toHaveBeenCalledTimes(1);
+    // Полный retry pipeline: новый lifecycle, без boot-only кэша
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(display).toHaveBeenCalledTimes(2);
     expect(boot).toHaveBeenCalledTimes(2);
     expect(boot).toHaveBeenLastCalledWith(el);
   });

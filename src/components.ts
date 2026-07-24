@@ -58,18 +58,17 @@ export interface ComponentDefinition {
   events?: InteractionEvent[];
 }
 
-/** pending — ждёт стратегии; booting — in-flight; failed — можно retry */
+/** pending → booting → booted | failed; retry = новый lifecycle */
 type BootState = 'pending' | 'booting' | 'booted' | 'failed';
-type FailureStage = 'prepare' | 'boot';
-type ModuleResult = ComponentModule | Promise<ComponentModule>;
 
 interface BootLifecycle {
   state: BootState;
-  definition?: ComponentDefinition;
-  module?: ModuleResult;
-  displayReady: boolean;
-  bootRequested: boolean;
-  failureStage?: FailureStage;
+  /** Один load на attempt (display + boot). */
+  module?: ComponentModule | Promise<ComponentModule>;
+  /** hasDisplay: display уже выполнен */
+  displayReady?: boolean;
+  /** strategy/bootComponent пришёл раньше display */
+  bootRequested?: boolean;
 }
 
 /* ---------- Singleton-хранилище ---------- */
@@ -129,17 +128,50 @@ function reportError(error: unknown): void {
   console.error(error);
 }
 
-/** Возвращает Promise для thenable из другого realm, иначе undefined. */
+/** Cross-realm thenable → Promise; sync value → undefined (без microtask). */
 function asPromise<T>(value: T | PromiseLike<T>): Promise<T> | undefined {
-  if (
-    (typeof value !== 'object' && typeof value !== 'function') ||
-    value === null ||
-    typeof (value as PromiseLike<T>).then !== 'function'
-  ) {
-    return undefined;
+  return value != null &&
+    (typeof value === 'object' || typeof value === 'function') &&
+    typeof (value as PromiseLike<T>).then === 'function'
+    ? Promise.resolve(value)
+    : undefined;
+}
+
+/** load + thenable/sync settle; identity-guard; sync errors rethrow. */
+function runWithModule(
+  el: Element,
+  def: ComponentDefinition,
+  lifecycle: BootLifecycle,
+  use: (mod: ComponentModule) => void,
+): void {
+  let result: ComponentModule | Promise<ComponentModule>;
+  try {
+    if (lifecycle.module === undefined) {
+      const loaded = def.load();
+      lifecycle.module = asPromise(loaded) ?? loaded;
+    }
+    result = lifecycle.module;
+  } catch (error) {
+    fail(el, lifecycle, error);
+    throw error;
   }
 
-  return Promise.resolve(value);
+  const ok = (mod: ComponentModule): void => {
+    if (bootLifecycles.get(el) !== lifecycle) return;
+    use(mod);
+  };
+  const promise = asPromise(result);
+  if (promise) {
+    promise.then(ok).catch(error => fail(el, lifecycle, error));
+    return;
+  }
+
+  try {
+    ok(result as ComponentModule);
+  } catch (error) {
+    fail(el, lifecycle, error);
+    throw error;
+  }
 }
 
 /* ---------- API ---------- */
@@ -172,7 +204,7 @@ export function registerComponent({
 
 /**
  * Запускает поиск по DOM и инициализирует компоненты по атрибуту data-component. Поддерживает ленивую инициализацию (intersection, interaction).
- * Retry: failed boot повторяется только при новом scan / `bootComponent` (без auto-retry).
+ * Retry: `failed` → новый lifecycle на scan / `bootComponent` (полный pipeline, без auto-retry).
  * @param $root Элемент, внутри которого нужно инициализировать компоненты (по умолчанию document.body)
  */
 export function runComponentLoader($root: HTMLElement = document.body): void {
@@ -196,27 +228,12 @@ export function runComponentLoader($root: HTMLElement = document.body): void {
     if (!def) return;
 
     let lifecycle = getLifecycle(el);
-    if (lifecycle?.state === 'failed') {
-      lifecycle = retryLifecycle(el, lifecycle);
-      scheduleComponent(el, def, lifecycle, observe);
-      return;
-    }
-    if (lifecycle) return;
+    if (lifecycle?.state === 'failed') lifecycle = createLifecycle(el);
+    else if (lifecycle) return;
+    else lifecycle = createLifecycle(el);
 
-    lifecycle = createLifecycle(el);
     scheduleComponent(el, def, lifecycle, observe);
   });
-}
-
-function retryLifecycle(el: Element, lifecycle: BootLifecycle): BootLifecycle {
-  if (lifecycle.failureStage === 'boot') {
-    lifecycle.state = 'pending';
-    lifecycle.failureStage = undefined;
-    lifecycle.bootRequested = false;
-    return lifecycle;
-  }
-
-  return createLifecycle(el);
 }
 
 function getComponentDefinition(el: Element): ComponentDefinition | undefined {
@@ -225,11 +242,7 @@ function getComponentDefinition(el: Element): ComponentDefinition | undefined {
 }
 
 function createLifecycle(el: Element): BootLifecycle {
-  const lifecycle: BootLifecycle = {
-    state: 'pending',
-    displayReady: false,
-    bootRequested: false,
-  };
+  const lifecycle: BootLifecycle = { state: 'pending' };
   bootLifecycles.set(el, lifecycle);
   return lifecycle;
 }
@@ -238,15 +251,10 @@ function getLifecycle(el: Element): BootLifecycle | undefined {
   const lifecycle = bootLifecycles.get(el);
   if (lifecycle || !shared.initialized?.has(el)) return lifecycle;
 
-  // Legacy WeakSet не различает прошлый success и failure: выбираем безопасный
-  // вариант без повторной инициализации уже существующего DOM-элемента.
-  const migratedLifecycle: BootLifecycle = {
-    state: 'booted',
-    displayReady: true,
-    bootRequested: false,
-  };
-  bootLifecycles.set(el, migratedLifecycle);
-  return migratedLifecycle;
+  // Legacy WeakSet: success/failure неразличимы — не переинициализируем DOM.
+  const migrated: BootLifecycle = { state: 'booted', displayReady: true };
+  bootLifecycles.set(el, migrated);
+  return migrated;
 }
 
 function scheduleComponent(
@@ -255,17 +263,13 @@ function scheduleComponent(
   lifecycle: BootLifecycle,
   observe: (el: HTMLElement, lifecycle: BootLifecycle) => void,
 ): void {
-  const name = el.getAttribute('data-component');
-
-  log('init', name!, { strategy: def.when });
+  log('init', el.getAttribute('data-component')!, { strategy: def.when });
 
   if (def.hasDisplay && !lifecycle.displayReady) prepareDisplay(el, def, lifecycle);
 
-  if (def.when === 'immediate') {
-    tryBoot(el, lifecycle);
-  } else if (def.when === 'visible') {
-    observe(el, lifecycle);
-  } else if (def.when === 'interaction') {
+  if (def.when === 'immediate') tryBoot(el, lifecycle);
+  else if (def.when === 'visible') observe(el, lifecycle);
+  else if (def.when === 'interaction') {
     attachInteractionListeners(el, def.events, lifecycle);
   }
 }
@@ -300,69 +304,33 @@ export function bootComponent(el: Element): void {
   if (!def) return;
 
   let lifecycle = getLifecycle(el);
-  if (lifecycle?.state === 'failed') lifecycle = retryLifecycle(el, lifecycle);
-  if (!lifecycle) lifecycle = createLifecycle(el);
+  if (!lifecycle || lifecycle.state === 'failed') lifecycle = createLifecycle(el);
 
   if (def.hasDisplay && !lifecycle.displayReady) prepareDisplay(el, def, lifecycle);
-
   tryBoot(el, lifecycle);
 }
 
-/**
- * Внутренняя функция: вызывает boot или default (если hasDisplay не указан)
- * @param el DOM-элемент с атрибутом data-component
- */
-function tryBoot(
-  el: Element,
-  lifecycle: BootLifecycle,
-): void {
-  if (bootLifecycles.get(el) !== lifecycle) return;
-  if (lifecycle.state === 'booting' || lifecycle.state === 'booted' || lifecycle.state === 'failed') return;
+/** boot / default; ждёт display при hasDisplay. */
+function tryBoot(el: Element, lifecycle: BootLifecycle): void {
+  if (bootLifecycles.get(el) !== lifecycle || lifecycle.state !== 'pending') return;
 
   lifecycle.bootRequested = true;
-  const def = lifecycle.definition ?? getComponentDefinition(el);
-  if (!def) return;
-  if (def.hasDisplay && !lifecycle.displayReady) return;
+  const def = getComponentDefinition(el);
+  if (!def || (def.hasDisplay && !lifecycle.displayReady)) return;
 
   lifecycle.state = 'booting';
   lifecycle.bootRequested = false;
   log('init', el.getAttribute('data-component')!, 'boot');
 
-  let result: ModuleResult;
-  try {
-    result = getModule(def, lifecycle);
-  } catch (error) {
-    fail(el, lifecycle, 'prepare', error);
-    throw error;
-  }
+  runWithModule(el, def, lifecycle, mod => {
+    if (lifecycle.state === 'failed') return;
 
-  const handle = (mod: ComponentModule): void => {
-    if (bootLifecycles.get(el) !== lifecycle || lifecycle.state === 'failed') return;
-
-    if (mod.boot) {
-      mod.boot(el);
-    } else if (!def.hasDisplay && typeof mod.default === 'function') {
-      mod.default(el);
-    }
+    if (mod.boot) mod.boot(el);
+    else if (!def.hasDisplay && typeof mod.default === 'function') mod.default(el);
 
     lifecycle.state = 'booted';
     shared.initialized?.add(el);
-  };
-
-  const promise = asPromise(result);
-  if (promise) {
-    promise
-      .then(handle, error => fail(el, lifecycle, 'prepare', error))
-      .catch(error => fail(el, lifecycle, 'boot', error));
-    return;
-  }
-
-  try {
-    handle(result as ComponentModule);
-  } catch (error) {
-    fail(el, lifecycle, 'boot', error);
-    throw error;
-  }
+  });
 }
 
 function prepareDisplay(
@@ -370,57 +338,18 @@ function prepareDisplay(
   def: ComponentDefinition,
   lifecycle: BootLifecycle,
 ): void {
-  if (lifecycle.definition && lifecycle.module !== undefined) return;
-  lifecycle.definition = def;
+  if (lifecycle.module !== undefined) return;
 
-  let result: ModuleResult;
-  try {
-    result = getModule(def, lifecycle);
-  } catch (error) {
-    fail(el, lifecycle, 'prepare', error);
-    throw error;
-  }
-
-  const display = (mod: ComponentModule): void => {
-    if (bootLifecycles.get(el) !== lifecycle) return;
+  runWithModule(el, def, lifecycle, mod => {
     mod.display?.(el);
     lifecycle.displayReady = true;
     if (lifecycle.bootRequested) tryBoot(el, lifecycle);
-  };
-
-  const promise = asPromise(result);
-  if (promise) {
-    promise.then(display).catch(error => fail(el, lifecycle, 'prepare', error));
-    return;
-  }
-
-  try {
-    display(result as ComponentModule);
-  } catch (error) {
-    fail(el, lifecycle, 'prepare', error);
-    throw error;
-  }
+  });
 }
 
-function getModule(def: ComponentDefinition, lifecycle: BootLifecycle): ModuleResult {
-  if (lifecycle.module !== undefined) return lifecycle.module;
-
-  lifecycle.definition = def;
-  const result = def.load();
-  const promise = asPromise(result);
-  lifecycle.module = promise ?? result;
-  return lifecycle.module;
-}
-
-function fail(
-  el: Element,
-  lifecycle: BootLifecycle,
-  failureStage: FailureStage,
-  error: unknown,
-): void {
+function fail(el: Element, lifecycle: BootLifecycle, error: unknown): void {
   if (bootLifecycles.get(el) !== lifecycle || lifecycle.state === 'failed') return;
   lifecycle.state = 'failed';
-  lifecycle.failureStage = failureStage;
   reportError(error);
 }
 
