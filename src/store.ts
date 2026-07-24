@@ -179,7 +179,8 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
   const ready = defer<void>();
   let mutationQueue: QueuedMutation<S>[] = [];
   let mutationQueueHead = 0;
-  let canonicalState: S | undefined;
+  let canonicalState!: S;
+  let hasCanonicalState = false;
   let isReady = false;
   let nextOperationId = 1;
   const pendingOperationIds = new Set<number>();
@@ -205,7 +206,7 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
   }
 
   function processMutationQueue(): void {
-    if (!isReady || canonicalState === undefined) return;
+    if (!isReady || !hasCanonicalState) return;
 
     while (mutationQueueHead < mutationQueue.length) {
       const pending = mutationQueue[mutationQueueHead];
@@ -234,7 +235,7 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
   }
 
   function enqueueOperation(operation: WorkerMutation<S>): void {
-    if (isReady && canonicalState !== undefined && mutationQueue.length === 0) {
+    if (isReady && hasCanonicalState && mutationQueue.length === 0) {
       postMutation(operation);
       return;
     }
@@ -265,11 +266,15 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
     if (msg.type === 'state') {
       dlog('wire', '← state');
       canonicalState = msg.state;
-      emitPort(portNameState(opts.name), msg.state);
+      hasCanonicalState = true;
 
       if (msg.operationId !== undefined) pendingOperationIds.delete(msg.operationId);
 
-      processMutationQueue();
+      try {
+        emitPort(portNameState(opts.name), msg.state);
+      } finally {
+        processMutationQueue();
+      }
       return;
     }
 

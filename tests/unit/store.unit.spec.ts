@@ -241,6 +241,19 @@ describe('FIFO мутаций Store', () => {
     ]);
   });
 
+  it('не путает canonical state undefined с отсутствием первого snapshot', async () => {
+    const { store, worker } = createPendingStore();
+
+    store.set('count', 1);
+    worker.emit({ type: 'state', state: undefined });
+    worker.emit({ type: 'ready' });
+    await store.ready;
+
+    expect(worker.mutations()).toMatchObject([
+      { type: 'op:set', path: 'count', value: 1 },
+    ]);
+  });
+
   it('отправляет серию обычных мутаций без round-trip serialization', async () => {
     const initial = { count: 0, items: [], obsolete: true };
     const { store, worker } = await createReadyStore(initial);
@@ -370,6 +383,23 @@ describe('FIFO мутаций Store', () => {
     worker.emit({ type: 'state', state: { count: 2 } });
 
     expect(values).toEqual([0, 1, 2]);
+  });
+
+  it('продолжает очередь, если watcher бросает при подтверждении мутации', async () => {
+    const { store, worker } = await createReadyStore();
+
+    store.watch('count', (value) => {
+      if (value === 1) throw new Error('watcher failed');
+    });
+    store.update('count', increment);
+    store.update('count', increment);
+
+    expect(() => acknowledge(worker, 0, { count: 1 })).toThrow('watcher failed');
+    expect(worker.mutations()[1]).toMatchObject({
+      type: 'op:set',
+      path: 'count',
+      value: 2,
+    });
   });
 
   it('не оставляет очередь зависшей после ошибки worker', async () => {
