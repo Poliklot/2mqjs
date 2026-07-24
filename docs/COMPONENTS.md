@@ -52,10 +52,10 @@ export type InitStrategy = 'immediate' | 'visible' | 'interaction';
 | --- | --- |
 | *(нет)* | Запускает display и планирует boot |
 | `pending` | Ожидает `visible` / `interaction` |
-| `booting` / `booted` | No-op |
+| `booting` / `booted` | No-op (кроме retry display — см. ниже) |
 | `failed` | Ожидает явного retry |
 
-**Retry policy:** без auto-retry. Повторный `runComponentLoader` планирует только повторный boot по исходной стратегии; `bootComponent` запускает boot немедленно. Ошибки boot → `failed` + hook / `console.error`.
+**Retry policy:** без auto-retry. Повторный `runComponentLoader` планирует boot по исходной strategy; `bootComponent` — boot сразу. Ошибки boot → `failed` + hook / `console.error`. Async fail **display**: сброс `displayStarted`; если boot ещё `pending` → `failed` (полный re-scan); если boot уже `booted` — re-scan повторяет только display.
 
 ---
 

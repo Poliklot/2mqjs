@@ -123,6 +123,15 @@ function reportError(error: unknown): void {
   console.error(error);
 }
 
+/** Cross-realm/iframe thenable: `instanceof Promise` там ложен. */
+function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as PromiseLike<T>).then === 'function'
+  );
+}
+
 /* ---------- API ---------- */
 
 /**
@@ -172,6 +181,18 @@ export function runComponentLoader($root: HTMLElement = document.body): void {
     if (!def) return;
 
     let lifecycle = getLifecycle(el);
+
+    // booted, но display упал async — повторить только display, не трогая boot
+    if (
+      lifecycle &&
+      lifecycle.state === 'booted' &&
+      def.hasDisplay &&
+      !lifecycle.displayStarted
+    ) {
+      retryDisplay(el, def, lifecycle);
+      return;
+    }
+
     if (lifecycle && lifecycle.state !== 'failed') return;
     if (!lifecycle) lifecycle = createLifecycle(el);
     else lifecycle.state = 'pending';
@@ -213,14 +234,7 @@ function scheduleComponent(
   log('init', name!, { strategy: def.when });
 
   if (def.hasDisplay && !lifecycle.displayStarted) {
-    lifecycle.displayStarted = true;
-    try {
-      startDisplay(el, def);
-    } catch (error) {
-      lifecycle.displayStarted = false;
-      lifecycle.state = 'failed';
-      throw error;
-    }
+    retryDisplay(el, def, lifecycle);
   }
 
   if (def.when === 'immediate') {
@@ -284,7 +298,7 @@ function tryBoot(
   lifecycle.state = 'booting';
   log('init', el.getAttribute('data-component')!, 'boot');
 
-  let result: ComponentModule | Promise<ComponentModule>;
+  let result: ComponentModule | PromiseLike<ComponentModule>;
   try {
     result = def.load();
   } catch (error) {
@@ -305,8 +319,9 @@ function tryBoot(
     shared.initialized?.add(el);
   };
 
-  if (result instanceof Promise) {
-    result.then(handle).catch(error => fail(el, lifecycle, error));
+  // Promise.resolve — thenable из другого window/iframe; sync оставляем sync
+  if (isThenable(result)) {
+    Promise.resolve(result).then(handle).catch(error => fail(el, lifecycle, error));
     return;
   }
 
@@ -318,27 +333,64 @@ function tryBoot(
   }
 }
 
+function retryDisplay(
+  el: Element,
+  def: ComponentDefinition,
+  lifecycle: BootLifecycle,
+): void {
+  lifecycle.displayStarted = true;
+  try {
+    startDisplay(el, def, lifecycle);
+  } catch (error) {
+    // pending → failed: прервать schedule (не observe/boot без display)
+    if (lifecycle.state === 'failed') throw error;
+  }
+}
+
+function onDisplayError(
+  el: Element,
+  lifecycle: BootLifecycle,
+  error: unknown,
+): void {
+  if (bootLifecycles.get(el) !== lifecycle) return;
+  lifecycle.displayStarted = false;
+  // pending (visible/interaction до boot) → failed, чтобы re-scan повторил display
+  // booting/booted — не трогаем state (не затираем успешный/идущий boot)
+  if (lifecycle.state === 'pending') {
+    fail(el, lifecycle, error);
+    return;
+  }
+  reportError(error);
+}
+
 function startDisplay(
   el: Element,
   def: ComponentDefinition,
+  lifecycle: BootLifecycle,
 ): void {
-  let result: ComponentModule | Promise<ComponentModule>;
+  let result: ComponentModule | PromiseLike<ComponentModule>;
   try {
     result = def.load();
   } catch (error) {
-    reportError(error);
+    onDisplayError(el, lifecycle, error);
     throw error;
   }
 
-  if (result instanceof Promise) {
-    result.then(mod => mod.display?.(el)).catch(reportError);
+  if (isThenable(result)) {
+    Promise.resolve(result).then(
+      mod => {
+        if (bootLifecycles.get(el) !== lifecycle) return;
+        mod.display?.(el);
+      },
+      error => onDisplayError(el, lifecycle, error),
+    );
     return;
   }
 
   try {
     result.display?.(el);
   } catch (error) {
-    reportError(error);
+    onDisplayError(el, lifecycle, error);
     throw error;
   }
 }

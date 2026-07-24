@@ -641,6 +641,160 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
+  it('hasDisplay + visible: async fail display ретраится на следующем scan', async () => {
+    const name = uniqueName('i22:has-display-visible-retry');
+    const { root, el } = createRootWithComponent(name);
+    const display = vi.fn();
+    const boot = vi.fn();
+    const onError = vi.fn();
+    setComponentsErrorHandler(onError);
+
+    let attempt = 0;
+    const load = vi.fn(() => {
+      attempt += 1;
+      if (attempt === 1) return Promise.reject(new Error('display chunk failed'));
+      return Promise.resolve({ display, boot });
+    });
+
+    registerComponent({
+      name,
+      when: 'visible',
+      hasDisplay: true,
+      load,
+    });
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(display).not.toHaveBeenCalled();
+    expect(boot).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    // pending + displayStarted=true без fail → элемент «залипал» и display не повторялся
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(display).toHaveBeenCalledWith(el);
+    expect(load.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+    const lastObserver = observerInstances[observerInstances.length - 1];
+    lastObserver.callback(
+      [{ isIntersecting: true, target: el } as unknown as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    );
+    await flushMicrotasks();
+
+    expect(boot).toHaveBeenCalledWith(el);
+  });
+
+  it('hasDisplay + immediate: fail display не сбрасывает успешный boot, display ретраится', async () => {
+    const name = uniqueName('i22:has-display-booted-retry');
+    const { root, el } = createRootWithComponent(name);
+    const display = vi.fn();
+    const boot = vi.fn();
+    setComponentsErrorHandler(vi.fn());
+
+    let attempt = 0;
+    const load = vi.fn(() => {
+      attempt += 1;
+      if (attempt === 1) return Promise.reject(new Error('display chunk failed'));
+      return Promise.resolve({ display, boot });
+    });
+
+    registerComponent({
+      name,
+      when: 'immediate',
+      hasDisplay: true,
+      load,
+    });
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(boot).toHaveBeenCalledTimes(1);
+    expect(display).not.toHaveBeenCalled();
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(boot).toHaveBeenCalledTimes(1);
+    expect(display).toHaveBeenCalledWith(el);
+  });
+
+  it('thenable load (не instanceof Promise) дожидается и вызывает boot', async () => {
+    const name = uniqueName('i22:thenable-load');
+    const { root, el } = createRootWithComponent(name);
+    const boot = vi.fn();
+
+    // Промис «из другого realm»: thenable, но не instanceof Promise
+    const thenable = {
+      then(
+        onFulfilled?: ((value: { boot: typeof boot }) => unknown) | null,
+        onRejected?: ((reason: unknown) => unknown) | null,
+      ) {
+        return Promise.resolve({ boot }).then(onFulfilled, onRejected);
+      },
+    };
+
+    registerComponent({
+      name,
+      when: 'immediate',
+      load: () => thenable as unknown as Promise<{ boot: typeof boot }>,
+    });
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(boot).toHaveBeenCalledTimes(1);
+    expect(boot).toHaveBeenCalledWith(el);
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+    expect(boot).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejected thenable (не instanceof Promise) → failed и retry', async () => {
+    const name = uniqueName('i22:thenable-reject');
+    const { root, el } = createRootWithComponent(name);
+    const boot = vi.fn();
+    const onError = vi.fn();
+    setComponentsErrorHandler(onError);
+
+    let attempt = 0;
+    registerComponent({
+      name,
+      when: 'immediate',
+      load: () => {
+        attempt += 1;
+        if (attempt === 1) {
+          return {
+            then(
+              _onFulfilled?: unknown,
+              onRejected?: ((reason: unknown) => unknown) | null,
+            ) {
+              return Promise.reject(new Error('cross-realm reject')).then(
+                null,
+                onRejected ?? undefined,
+              );
+            },
+          } as unknown as Promise<never>;
+        }
+        return Promise.resolve({ boot });
+      },
+    });
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(boot).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(boot).toHaveBeenCalledWith(el);
+  });
+
   it('мигрирует global singleton state предыдущей версии', async () => {
     const globalWithSymbols = globalThis as typeof globalThis & {
       [key: symbol]: unknown;
