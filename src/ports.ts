@@ -1,14 +1,13 @@
 /**
  * 2mqjs — единая шина портов (pub/sub) с гарантированным singleton-состоянием.
  *
- *   emitPort('name', payload)        — публикация
- *   onPort('name', cb)               — подписка   (off-функция)
- *   oncePort('name', cb)             — одноразовая подписка (off)
- *   getPortSnapshot('name')          — последнее значение, если было
- *   setPortsDebug(true | opts)       — включить/выключить логирование
+ *   emitPort('name', payload)           — broadcast (+ optional target Worker)
+ *   onPort('name', cb)                  — подписка (off-функция)
+ *   oncePort('name', cb)                — одноразовая подписка (off)
+ *   getPortSnapshot('name')             — последнее значение, если было
+ *   setPortsDebug(true | opts)          — логирование
  *
- * Коллекции лежат на globalThis под Symbol.for('2mqjs.ports'),
- * поэтому любая копия модуля использует один и тот же «центр».
+ * Коллекции на globalThis под Symbol.for('2mqjs.ports') — один «центр» на все копии модуля.
  */
 
 export type PortName = string;
@@ -19,6 +18,8 @@ interface SharedState {
   listeners: Map<PortName, Set<PortListener<unknown>>>;
   last: Map<PortName, unknown>;
   workers: Set<Worker>;
+  /** Только workers с ограниченным списком ports; отсутствие = all. */
+  workerPorts: Map<Worker, Set<PortName>>;
   debug: { emit: boolean; listen: boolean };
 }
 
@@ -29,10 +30,13 @@ const shared: SharedState =
     listeners: new Map(),
     last: new Map(),
     workers: new Set(),
+    workerPorts: new Map(),
     debug: { emit: false, listen: false },
   });
 
-const { listeners, last, workers, debug } = shared;
+if (!shared.workerPorts) shared.workerPorts = new Map();
+
+const { listeners, last, workers, workerPorts, debug } = shared;
 
 /* ---------- Вспомогалка логирования ---------- */
 function log(kind: 'emit' | 'listen', port: PortName, data?: unknown) {
@@ -47,13 +51,61 @@ function log(kind: 'emit' | 'listen', port: PortName, data?: unknown) {
   );
 }
 
+function acceptsPort(worker: Worker, port: PortName): boolean {
+  const filter = workerPorts.get(worker);
+  return !filter || filter.has(port);
+}
+
+function postToWorkers(
+  port: PortName,
+  payload: unknown,
+  opts: { to?: Worker; except?: Worker },
+): void {
+  const message = { port, payload };
+  const { to, except } = opts;
+
+  if (to) {
+    if (workers.has(to) && to !== except) to.postMessage(message);
+    return;
+  }
+
+  for (const worker of workers) {
+    if (worker === except) continue;
+    if (!acceptsPort(worker, port)) continue;
+    worker.postMessage(message);
+  }
+}
+
 /* ---------- API ---------- */
 
-export function emitPort<T = unknown>(port: PortName, payload: T): void {
+/**
+ * Публикация в main listeners + workers.
+ * @param to — optional target worker (explicit; filter не режет). Без `to` — broadcast.
+ */
+export function emitPort<T = unknown>(
+  port: PortName,
+  payload: T,
+  to?: Worker,
+): void {
   log('emit', port, payload);
   last.set(port, payload);
   listeners.get(port)?.forEach(cb => (cb as PortListener<T>)(payload));
-  workers.forEach(w => w.postMessage({ port, payload }));
+  postToWorkers(port, payload, { to });
+}
+
+/**
+ * Internal: worker→main proxy без echo origin (issue #21).
+ * Main listeners + peers; origin только если когда-либо target'нут через emitPort(..., origin).
+ */
+export function _emitPortFromWorker<T = unknown>(
+  port: PortName,
+  payload: T,
+  origin: Worker,
+): void {
+  log('emit', port, payload);
+  last.set(port, payload);
+  listeners.get(port)?.forEach(cb => (cb as PortListener<T>)(payload));
+  postToWorkers(port, payload, { except: origin });
 }
 
 export function onPort<T = unknown>(
@@ -117,10 +169,20 @@ export function setPortsDebug(
 }
 
 /* -------- internal: привязка воркеров -------- */
-export function _attachWorker(worker: Worker): void {
+
+/**
+ * @param ports — если задан, worker получает только эти port names (subscription filter).
+ */
+export function _attachWorker(worker: Worker, ports?: readonly string[]): void {
   workers.add(worker);
+  if (ports && ports.length > 0) {
+    workerPorts.set(worker, new Set(ports));
+  } else {
+    workerPorts.delete(worker);
+  }
 }
 
 export function _detachWorker(worker: Worker): void {
   workers.delete(worker);
+  workerPorts.delete(worker);
 }

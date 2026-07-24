@@ -13,6 +13,7 @@ import { registerWorker } from '2mqjs/workers';
 await registerWorker({
   name: 'productData',
   src: () => import('./workers/productData.worker?worker'),
+  // ports: ['productData:fetch'] — optional filter
 });
 // В момент готовности: порт-событие `productData:ready`
 ```
@@ -145,6 +146,30 @@ setWorkersDebug(true);
 * Имена воркеров должны быть **уникальными**: `catalog`, `auth`, `analytics`.
 * Для связанных событий используйте префикс имени: `catalog:*`.
 * Разбивайте по доменам: один воркер — один bounded context.
+
+## Ports routing и echo
+
+`registerWorker` проксирует `{ port, payload }` в шину **без echo origin**:
+
+* origin не получает своё сообщение;
+* peers + main `onPort` — получают;
+* loopback: `emitPort(port, payload, thatWorker)`.
+
+Filter (subscription) — только нужные ports:
+
+```ts
+await registerWorker({
+  name: 'catalog',
+  src: () => import('./catalog.worker?worker'),
+  ports: ['catalog:fetch', 'catalog:warm'],
+});
+```
+
+- omit `ports` — все ports (как раньше);
+- `ports: [...]` — только список;
+- target с main: `emitPort('catalog:fetch', q, workerInstance)`; non-port — `sendToWorker(name, data)`.
+
+Подробнее: [PORTS.md — Routing workers](./PORTS.md#routing-workers-issue-21).
 
 ---
 
