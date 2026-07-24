@@ -23,7 +23,7 @@
 | `registerComponent`         | Регистрирует компонент                                  | `({ name, load, when?, hasDisplay? }) => void` |
 | `runComponentLoader`        | Сканирует контейнер или весь DOM и запускает компоненты | `(root?: ParentNode) => void`                  |
 | `bootComponent`             | Форсирует boot для конкретного элемента (в т.ч. retry)  | `(el: Element) => void`                        |
-| `setComponentsErrorHandler` | Опциональный hook ошибок load/display/boot              | `((error) => void) \| null`                    |
+| `setComponentsErrorHandler` | Опциональный hook ошибок load/display/boot              | `(handler: ((error: unknown) => void) \| null) => void` |
 
 ---
 
@@ -50,12 +50,12 @@ export type InitStrategy = 'immediate' | 'visible' | 'interaction';
 
 | Состояние | Поведение loader |
 | --- | --- |
-| *(нет)* | Запускает полный pipeline |
-| `pending` | Ожидает `visible` / `interaction` или display-load |
+| *(нет)* | Запускает display и планирует boot |
+| `pending` | Ожидает `visible` / `interaction` |
 | `booting` / `booted` | No-op |
 | `failed` | Ожидает явного retry |
 
-**Retry policy:** без auto-retry. Повторный `runComponentLoader` запускает полный pipeline и соблюдает исходную стратегию; `bootComponent` запускает его немедленно. Ошибки → `failed` + hook / `console.error` (не sticky forever).
+**Retry policy:** без auto-retry. Повторный `runComponentLoader` планирует только повторный boot по исходной стратегии; `bootComponent` запускает boot немедленно. Ошибки boot → `failed` + hook / `console.error`.
 
 ---
 

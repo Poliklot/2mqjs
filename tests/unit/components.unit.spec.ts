@@ -131,7 +131,7 @@ describe('components: regression — existing happy paths', () => {
     expect(boot).toHaveBeenCalledWith(el);
   });
 
-  it('hasDisplay: calls display before boot for immediate', async () => {
+  it('hasDisplay: calls display before boot through separate loads', async () => {
     const name = uniqueName('reg:has-display');
     const { root, el } = createRootWithComponent(name);
     const order: string[] = [];
@@ -157,7 +157,7 @@ describe('components: regression — existing happy paths', () => {
     expect(display).toHaveBeenCalledWith(el);
     expect(boot).toHaveBeenCalledWith(el);
     expect(order).toEqual(['display', 'boot']);
-    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(2);
   });
 
   it('hasDisplay + default: does not call default when hasDisplay is true', () => {
@@ -229,24 +229,6 @@ describe('components: regression — existing happy paths', () => {
     expect(observerInstances[0].unobserve).toHaveBeenCalledWith(el);
   });
 
-  it('visible: does not duplicate pending observation on repeated scans', () => {
-    const name = uniqueName('reg:visible-pending');
-    const { root, el } = createRootWithComponent(name);
-
-    registerComponent({
-      name,
-      when: 'visible',
-      load: () => ({ boot: vi.fn() }),
-    });
-
-    runComponentLoader(root);
-    runComponentLoader(root);
-
-    expect(observerInstances).toHaveLength(1);
-    expect(observerInstances[0].observe).toHaveBeenCalledTimes(1);
-    expect(observerInstances[0].observe).toHaveBeenCalledWith(el);
-  });
-
   it('interaction: attaches default triggers and boots once on event', () => {
     const name = uniqueName('reg:interaction');
     const { root, el } = createRootWithComponent(name);
@@ -308,8 +290,50 @@ describe('components: regression — existing happy paths', () => {
     expect(boot).toHaveBeenCalledTimes(1);
   });
 
+  it('interaction: uses current registration when event fires', () => {
+    const name = uniqueName('reg:interaction-reregister');
+    const { root, el } = createRootWithComponent(name);
+    const listeners = new Map<string, EventListener>();
+    const oldBoot = vi.fn();
+    const currentBoot = vi.fn();
+
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: EventListener) => listeners.set(event, handler),
+    );
+
+    registerComponent({ name, when: 'interaction', load: () => ({ boot: oldBoot }) });
+    runComponentLoader(root);
+    registerComponent({ name, when: 'interaction', load: () => ({ boot: currentBoot }) });
+
+    listeners.get('click')!(new Event('click'));
+
+    expect(oldBoot).not.toHaveBeenCalled();
+    expect(currentBoot).toHaveBeenCalledWith(el);
+  });
+});
+
+describe('issue #22: boot lifecycle states, retry, errors', () => {
+  it('visible: does not duplicate pending observation on repeated scans', () => {
+    const name = uniqueName('i22:visible-pending');
+    const { root, el } = createRootWithComponent(name);
+
+    registerComponent({
+      name,
+      when: 'visible',
+      load: () => ({ boot: vi.fn() }),
+    });
+
+    runComponentLoader(root);
+    runComponentLoader(root);
+
+    expect(observerInstances).toHaveLength(2);
+    expect(observerInstances[0].observe).toHaveBeenCalledTimes(1);
+    expect(observerInstances[0].observe).toHaveBeenCalledWith(el);
+    expect(observerInstances[1].observe).not.toHaveBeenCalled();
+  });
+
   it('interaction: does not duplicate pending listeners on repeated scans', () => {
-    const name = uniqueName('reg:interaction-pending');
+    const name = uniqueName('i22:interaction-pending');
     const { root, el } = createRootWithComponent(name);
 
     registerComponent({
@@ -323,9 +347,7 @@ describe('components: regression — existing happy paths', () => {
 
     expect(el.addEventListener).toHaveBeenCalledTimes(3);
   });
-});
 
-describe('issue #22: boot lifecycle states, retry, errors', () => {
   it('re-runs boot after rejected dynamic import on next scan', async () => {
     const name = uniqueName('i22:reject-import');
     const { root, el } = createRootWithComponent(name);
@@ -547,8 +569,47 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  it('loads hasDisplay module once, reports its rejection through hook, and retries full pipeline', async () => {
-    const name = uniqueName('i22:has-display-retry');
+  it('retries failed interaction component only after a new interaction', async () => {
+    const name = uniqueName('i22:interaction-retry');
+    const { root, el } = createRootWithComponent(name);
+    const listeners = new Map<string, EventListener>();
+    const boot = vi.fn();
+    let attempt = 0;
+    setComponentsErrorHandler(vi.fn());
+
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: EventListener) => listeners.set(event, handler),
+    );
+    (el.removeEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string) => listeners.delete(event),
+    );
+
+    registerComponent({
+      name,
+      when: 'interaction',
+      load: () => {
+        attempt += 1;
+        if (attempt === 1) return Promise.reject(new Error('chunk load failed'));
+        return Promise.resolve({ boot });
+      },
+    });
+
+    runComponentLoader(root);
+    listeners.get('click')!(new Event('click'));
+    await flushMicrotasks();
+
+    runComponentLoader(root);
+    expect(attempt).toBe(1);
+
+    listeners.get('click')!(new Event('click'));
+    await flushMicrotasks();
+
+    expect(attempt).toBe(2);
+    expect(boot).toHaveBeenCalledWith(el);
+  });
+
+  it('hasDisplay keeps boot independent from a failed display load', async () => {
+    const name = uniqueName('i22:has-display-load');
     const { root, el } = createRootWithComponent(name);
     const display = vi.fn();
     const boot = vi.fn();
@@ -572,20 +633,12 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     runComponentLoader(root);
     await flushMicrotasks();
 
-    expect(load).toHaveBeenCalledTimes(1);
-    expect(display).not.toHaveBeenCalled();
-    expect(boot).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalledTimes(1);
-    expect(errorSpy).not.toHaveBeenCalled();
-
-    runComponentLoader(root);
-    await flushMicrotasks();
-
     expect(load).toHaveBeenCalledTimes(2);
-    expect(display).toHaveBeenCalledTimes(1);
-    expect(display).toHaveBeenCalledWith(el);
+    expect(display).not.toHaveBeenCalled();
     expect(boot).toHaveBeenCalledTimes(1);
     expect(boot).toHaveBeenCalledWith(el);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it('migrates global singleton state created by the previous version', async () => {

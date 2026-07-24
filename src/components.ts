@@ -64,8 +64,7 @@ type ModuleResult = ComponentModule | Promise<ComponentModule>;
 
 interface BootLifecycle {
   state: BootState;
-  module?: ModuleResult;
-  display?: Promise<ComponentModule>;
+  displayStarted: boolean;
 }
 
 /* ---------- Singleton-хранилище ---------- */
@@ -155,37 +154,30 @@ export function registerComponent({
 
 /**
  * Запускает поиск по DOM и инициализирует компоненты по атрибуту data-component. Поддерживает ленивую инициализацию (intersection, interaction).
- * Retry: failed-элемент повторяет полный pipeline только при новом scan / `bootComponent` (без auto-retry).
+ * Retry: failed boot повторяется только при новом scan / `bootComponent` (без auto-retry).
  * @param $root Элемент, внутри которого нужно инициализировать компоненты (по умолчанию document.body)
  */
 export function runComponentLoader($root: HTMLElement = document.body): void {
-  let observer: IntersectionObserver | null = null;
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      observer.unobserve(entry.target);
 
-  const observe = (el: HTMLElement): void => {
-    if (!observer) {
-      observer = new IntersectionObserver(entries => {
-        entries.forEach(entry => {
-          if (!entry.isIntersecting) return;
-          observer?.unobserve(entry.target);
-
-          const def = getComponentDefinition(entry.target);
-          const lifecycle = getLifecycle(entry.target);
-          if (def && lifecycle) tryBoot(entry.target, def, lifecycle);
-        });
-      });
-    }
-
-    observer.observe(el);
-  };
+      const lifecycle = getLifecycle(entry.target);
+      if (lifecycle) tryBoot(entry.target, lifecycle);
+    });
+  });
 
   $root.querySelectorAll<HTMLElement>('[data-component]').forEach(el => {
     const def = getComponentDefinition(el);
     if (!def) return;
 
-    const lifecycle = getLifecycle(el);
+    let lifecycle = getLifecycle(el);
     if (lifecycle && lifecycle.state !== 'failed') return;
+    if (!lifecycle) lifecycle = createLifecycle(el);
+    else lifecycle.state = 'pending';
 
-    scheduleComponent(el, def, observe);
+    scheduleComponent(el, def, lifecycle, observer);
   });
 }
 
@@ -195,7 +187,7 @@ function getComponentDefinition(el: Element): ComponentDefinition | undefined {
 }
 
 function createLifecycle(el: Element): BootLifecycle {
-  const lifecycle: BootLifecycle = { state: 'pending' };
+  const lifecycle: BootLifecycle = { state: 'pending', displayStarted: false };
   bootLifecycles.set(el, lifecycle);
   return lifecycle;
 }
@@ -206,7 +198,7 @@ function getLifecycle(el: Element): BootLifecycle | undefined {
 
   // Legacy WeakSet не различает прошлый success и failure: выбираем безопасный
   // вариант без повторной инициализации уже существующего DOM-элемента.
-  const migratedLifecycle: BootLifecycle = { state: 'booted' };
+  const migratedLifecycle: BootLifecycle = { state: 'booted', displayStarted: true };
   bootLifecycles.set(el, migratedLifecycle);
   return migratedLifecycle;
 }
@@ -214,21 +206,30 @@ function getLifecycle(el: Element): BootLifecycle | undefined {
 function scheduleComponent(
   el: HTMLElement,
   def: ComponentDefinition,
-  observe: (el: HTMLElement) => void,
+  lifecycle: BootLifecycle,
+  observer: IntersectionObserver,
 ): void {
-  const lifecycle = createLifecycle(el);
   const name = el.getAttribute('data-component');
 
   log('init', name!, { strategy: def.when });
 
-  if (def.hasDisplay) startDisplay(el, def, lifecycle);
+  if (def.hasDisplay && !lifecycle.displayStarted) {
+    lifecycle.displayStarted = true;
+    try {
+      startDisplay(el, def);
+    } catch (error) {
+      lifecycle.displayStarted = false;
+      lifecycle.state = 'failed';
+      throw error;
+    }
+  }
 
   if (def.when === 'immediate') {
-    tryBoot(el, def, lifecycle);
+    tryBoot(el, lifecycle);
   } else if (def.when === 'visible') {
-    observe(el);
+    observer.observe(el);
   } else {
-    attachInteractionListeners(el, def, lifecycle);
+    attachInteractionListeners(el, def.events, lifecycle);
   }
 }
 
@@ -239,15 +240,15 @@ function scheduleComponent(
  */
 function attachInteractionListeners(
   el: HTMLElement,
-  def: ComponentDefinition,
+  events: InteractionEvent[] | undefined,
   lifecycle: BootLifecycle,
 ): void {
   const triggers: InteractionEvent[] =
-    def.events && def.events.length ? def.events : ['click', 'focus', 'mouseenter'];
+    events && events.length ? events : ['click', 'focus', 'mouseenter'];
 
   const handler = () => {
     triggers.forEach(evt => el.removeEventListener(evt, handler));
-    tryBoot(el, def, lifecycle);
+    tryBoot(el, lifecycle);
   };
 
   triggers.forEach(evt => el.addEventListener(evt, handler, { once: true }));
@@ -258,16 +259,13 @@ function attachInteractionListeners(
  * @param el DOM-элемент с атрибутом data-component
  */
 export function bootComponent(el: Element): void {
-  const def = getComponentDefinition(el);
-  if (!def) return;
-
   let lifecycle = getLifecycle(el);
   if (!lifecycle || lifecycle.state === 'failed') {
-    lifecycle = createLifecycle(el);
-    if (def.hasDisplay) startDisplay(el, def, lifecycle);
+    if (!lifecycle) lifecycle = createLifecycle(el);
+    else lifecycle.state = 'pending';
   }
 
-  tryBoot(el, def, lifecycle);
+  tryBoot(el, lifecycle);
 }
 
 /**
@@ -276,18 +274,20 @@ export function bootComponent(el: Element): void {
  */
 function tryBoot(
   el: Element,
-  def: ComponentDefinition,
   lifecycle: BootLifecycle,
 ): void {
   if (bootLifecycles.get(el) !== lifecycle) return;
   if (lifecycle.state === 'booting' || lifecycle.state === 'booted' || lifecycle.state === 'failed') return;
+
+  const def = getComponentDefinition(el);
+  if (!def) return;
 
   lifecycle.state = 'booting';
   log('init', el.getAttribute('data-component')!, 'boot');
 
   let result: ModuleResult;
   try {
-    result = getModule(def, lifecycle);
+    result = def.load();
   } catch (error) {
     fail(el, lifecycle, error);
     throw error;
@@ -307,8 +307,7 @@ function tryBoot(
   };
 
   if (result instanceof Promise) {
-    const ready = lifecycle.display ?? result;
-    ready.then(handle).catch(error => fail(el, lifecycle, error));
+    result.then(handle).catch(error => fail(el, lifecycle, error));
     return;
   }
 
@@ -323,39 +322,26 @@ function tryBoot(
 function startDisplay(
   el: Element,
   def: ComponentDefinition,
-  lifecycle: BootLifecycle,
 ): void {
   let result: ModuleResult;
   try {
-    result = getModule(def, lifecycle);
+    result = def.load();
   } catch (error) {
-    fail(el, lifecycle, error);
+    reportError(error);
     throw error;
   }
 
   if (result instanceof Promise) {
-    lifecycle.display = result.then(mod => {
-      if (bootLifecycles.get(el) === lifecycle) mod.display?.(el);
-      return mod;
-    });
-    lifecycle.display.catch(error => fail(el, lifecycle, error));
+    result.then(mod => mod.display?.(el)).catch(reportError);
     return;
   }
 
   try {
     result.display?.(el);
   } catch (error) {
-    fail(el, lifecycle, error);
+    reportError(error);
     throw error;
   }
-}
-
-function getModule(
-  def: ComponentDefinition,
-  lifecycle: BootLifecycle,
-): ModuleResult {
-  if (lifecycle.module === undefined) lifecycle.module = def.load();
-  return lifecycle.module;
 }
 
 function fail(el: Element, lifecycle: BootLifecycle, error: unknown): void {
@@ -365,7 +351,7 @@ function fail(el: Element, lifecycle: BootLifecycle, error: unknown): void {
 }
 
 /**
- * Опциональный hook ошибок load/boot. Без handler — `console.error`. `null` сбрасывает.
+ * Опциональный hook ошибок load/display/boot. Без handler — `console.error`. `null` сбрасывает.
  */
 export function setComponentsErrorHandler(
   handler: ((error: unknown) => void) | null,
