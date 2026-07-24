@@ -77,8 +77,8 @@ afterEach(() => {
   observerInstances.length = 0;
 });
 
-describe('components: regression — existing happy paths', () => {
-  it('immediate: sync module.boot runs once', () => {
+describe('components: регрессия — существующие happy path', () => {
+  it('immediate: синхронный module.boot вызывается один раз', () => {
     const name = uniqueName('reg:immediate-boot');
     const { root, el } = createRootWithComponent(name);
     const boot = vi.fn();
@@ -96,7 +96,7 @@ describe('components: regression — existing happy paths', () => {
     expect(boot).toHaveBeenCalledWith(el);
   });
 
-  it('immediate: sync module.default runs when boot is absent', () => {
+  it('immediate: синхронный module.default вызывается, если boot нет', () => {
     const name = uniqueName('reg:immediate-default');
     const { root, el } = createRootWithComponent(name);
     const def = vi.fn();
@@ -113,7 +113,7 @@ describe('components: regression — existing happy paths', () => {
     expect(def).toHaveBeenCalledWith(el);
   });
 
-  it('immediate: async load then boot', async () => {
+  it('immediate: async load, затем boot', async () => {
     const name = uniqueName('reg:async-boot');
     const { root, el } = createRootWithComponent(name);
     const boot = vi.fn();
@@ -131,7 +131,7 @@ describe('components: regression — existing happy paths', () => {
     expect(boot).toHaveBeenCalledWith(el);
   });
 
-  it('hasDisplay: calls display before boot through separate loads', async () => {
+  it('hasDisplay: display до boot через отдельные load', async () => {
     const name = uniqueName('reg:has-display');
     const { root, el } = createRootWithComponent(name);
     const order: string[] = [];
@@ -160,7 +160,7 @@ describe('components: regression — existing happy paths', () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
-  it('hasDisplay + default: does not call default when hasDisplay is true', () => {
+  it('hasDisplay + default: default не вызывается при hasDisplay', () => {
     const name = uniqueName('reg:has-display-no-default');
     const { root } = createRootWithComponent(name);
     const display = vi.fn();
@@ -179,7 +179,7 @@ describe('components: regression — existing happy paths', () => {
     expect(def).not.toHaveBeenCalled();
   });
 
-  it('bootComponent forces boot for registered element', () => {
+  it('bootComponent форсирует boot зарегистрированного элемента', () => {
     const name = uniqueName('reg:boot-component');
     const el = {
       getAttribute: () => name,
@@ -198,7 +198,7 @@ describe('components: regression — existing happy paths', () => {
     expect(boot).toHaveBeenCalledWith(el);
   });
 
-  it('visible: observes element and boots on intersect', () => {
+  it('visible: observe элемента и boot при intersect', () => {
     const name = uniqueName('reg:visible');
     const { root, el } = createRootWithComponent(name);
     const boot = vi.fn();
@@ -229,7 +229,7 @@ describe('components: regression — existing happy paths', () => {
     expect(observerInstances[0].unobserve).toHaveBeenCalledWith(el);
   });
 
-  it('interaction: attaches default triggers and boots once on event', () => {
+  it('interaction: вешает default-триггеры и boot один раз по событию', () => {
     const name = uniqueName('reg:interaction');
     const { root, el } = createRootWithComponent(name);
     const boot = vi.fn();
@@ -262,7 +262,7 @@ describe('components: regression — existing happy paths', () => {
     expect(boot).toHaveBeenCalledTimes(1);
   });
 
-  it('interaction: uses custom events list when provided', () => {
+  it('interaction: использует переданный список events', () => {
     const name = uniqueName('reg:interaction-custom');
     const { root, el } = createRootWithComponent(name);
     const boot = vi.fn();
@@ -290,7 +290,7 @@ describe('components: regression — existing happy paths', () => {
     expect(boot).toHaveBeenCalledTimes(1);
   });
 
-  it('interaction: uses current registration when event fires', () => {
+  it('interaction: при событии берёт актуальную регистрацию', () => {
     const name = uniqueName('reg:interaction-reregister');
     const { root, el } = createRootWithComponent(name);
     const listeners = new Map<string, EventListener>();
@@ -312,8 +312,8 @@ describe('components: regression — existing happy paths', () => {
   });
 });
 
-describe('issue #22: boot lifecycle states, retry, errors', () => {
-  it('visible: does not duplicate pending observation on repeated scans', () => {
+describe('issue #22: lifecycle boot, retry, ошибки', () => {
+  it('visible: не дублирует pending observe при повторных scan', () => {
     const name = uniqueName('i22:visible-pending');
     const { root, el } = createRootWithComponent(name);
 
@@ -332,7 +332,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(observerInstances[1].observe).not.toHaveBeenCalled();
   });
 
-  it('interaction: does not duplicate pending listeners on repeated scans', () => {
+  it('interaction: не дублирует pending listeners при повторных scan', () => {
     const name = uniqueName('i22:interaction-pending');
     const { root, el } = createRootWithComponent(name);
 
@@ -348,7 +348,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(el.addEventListener).toHaveBeenCalledTimes(3);
   });
 
-  it('re-runs boot after rejected dynamic import on next scan', async () => {
+  it('после rejected dynamic import повторяет boot на следующем scan', async () => {
     const name = uniqueName('i22:reject-import');
     const { root, el } = createRootWithComponent(name);
     const boot = vi.fn();
@@ -385,7 +385,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(boot).toHaveBeenCalledWith(el);
   });
 
-  it('reports throwing sync boot() and preserves its throw for bootComponent', () => {
+  it('сообщает о sync throw boot() и сохраняет throw для bootComponent', () => {
     const name = uniqueName('i22:throw-boot');
     const el = {
       getAttribute: () => name,
@@ -414,7 +414,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(attempt).toBe(2);
   });
 
-  it('preserves a synchronous load() throw after reporting it', () => {
+  it('после report сохраняет синхронный throw load()', () => {
     const name = uniqueName('i22:throw-load');
     const { root } = createRootWithComponent(name);
     const onError = vi.fn();
@@ -432,7 +432,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  it('does not start a second load while first async boot is in progress', async () => {
+  it('не стартует второй load, пока идёт первый async boot', async () => {
     const name = uniqueName('i22:in-flight');
     const { root } = createRootWithComponent(name);
 
@@ -462,7 +462,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(boot).toHaveBeenCalledTimes(1);
   });
 
-  it('does not re-boot after successful boot on later scans', async () => {
+  it('после успешного boot не перезапускает boot на следующих scan', async () => {
     const name = uniqueName('i22:booted-stable');
     const { root } = createRootWithComponent(name);
     const boot = vi.fn();
@@ -483,7 +483,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(boot).toHaveBeenCalledTimes(1);
   });
 
-  it('defaults to console.error when error handler is not set', async () => {
+  it('без error handler пишет в console.error', async () => {
     const name = uniqueName('i22:console-error');
     const { root } = createRootWithComponent(name);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -500,7 +500,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(errorSpy).toHaveBeenCalled();
   });
 
-  it('failed element can be retried via bootComponent', async () => {
+  it('failed элемент можно повторить через bootComponent', async () => {
     const name = uniqueName('i22:boot-component-retry');
     const el = {
       getAttribute: () => name,
@@ -528,7 +528,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(boot).toHaveBeenCalledTimes(1);
   });
 
-  it('retries failed visible component through its original strategy', async () => {
+  it('retry failed visible идёт через исходную strategy', async () => {
     const name = uniqueName('i22:visible-retry');
     const { root, el } = createRootWithComponent(name);
     const boot = vi.fn();
@@ -569,7 +569,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  it('retries failed interaction component only after a new interaction', async () => {
+  it('retry failed interaction только после нового interaction', async () => {
     const name = uniqueName('i22:interaction-retry');
     const { root, el } = createRootWithComponent(name);
     const listeners = new Map<string, EventListener>();
@@ -608,7 +608,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(boot).toHaveBeenCalledWith(el);
   });
 
-  it('hasDisplay keeps boot independent from a failed display load', async () => {
+  it('hasDisplay: boot независим от failed load display', async () => {
     const name = uniqueName('i22:has-display-load');
     const { root, el } = createRootWithComponent(name);
     const display = vi.fn();
@@ -641,7 +641,7 @@ describe('issue #22: boot lifecycle states, retry, errors', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('migrates global singleton state created by the previous version', async () => {
+  it('мигрирует global singleton state предыдущей версии', async () => {
     const globalWithSymbols = globalThis as typeof globalThis & {
       [key: symbol]: unknown;
     };
