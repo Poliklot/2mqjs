@@ -50,12 +50,12 @@ export type InitStrategy = 'immediate' | 'visible' | 'interaction';
 
 | Состояние | Поведение loader |
 | --- | --- |
-| *(нет)* | Запускает display и планирует boot |
-| `pending` | Ожидает `visible` / `interaction` |
-| `booting` / `booted` | No-op (кроме retry display — см. ниже) |
+| *(нет)* | Загружает module и запускает display |
+| `pending` | Ожидает strategy или display |
+| `booting` / `booted` | No-op |
 | `failed` | Ожидает явного retry |
 
-**Retry policy:** без auto-retry. Повторный `runComponentLoader` планирует boot по исходной strategy; `bootComponent` — boot сразу. Ошибки boot → `failed` + hook / `console.error`. Async fail **display**: сброс `displayStarted`; если boot ещё `pending` → `failed` (полный re-scan); если boot уже `booted` — re-scan повторяет только display.
+**Retry policy:** без auto-retry. Ошибка load/display создаёт новый lifecycle на следующем scan. Ошибка boot повторяет только boot на уже готовом module. `bootComponent` обходит strategy, но ждёт display.
 
 ---
 
@@ -89,8 +89,8 @@ export function boot(el: Element) {
 
 Если хотите сначала отрендерить быстрый скелетон/placeholder, а тяжёлую логику подключить позже:
 
-1. При регистрации компонента вызывается `display`.
-2. При наступлении условия запуска (`when`) вызывается `boot`.
+1. Module загружается один раз на lifecycle, затем вызывается `display`.
+2. `boot` вызывается по strategy только после успешного `display`.
 
 ---
 

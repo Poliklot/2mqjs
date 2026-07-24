@@ -131,7 +131,7 @@ describe('components: регрессия — существующие happy path
     expect(boot).toHaveBeenCalledWith(el);
   });
 
-  it('hasDisplay: display до boot через отдельные load', async () => {
+  it('hasDisplay: display до boot через один load lifecycle', async () => {
     const name = uniqueName('reg:has-display');
     const { root, el } = createRootWithComponent(name);
     const order: string[] = [];
@@ -157,7 +157,7 @@ describe('components: регрессия — существующие happy path
     expect(display).toHaveBeenCalledWith(el);
     expect(boot).toHaveBeenCalledWith(el);
     expect(order).toEqual(['display', 'boot']);
-    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenCalledTimes(1);
   });
 
   it('hasDisplay + default: default не вызывается при hasDisplay', () => {
@@ -608,13 +608,12 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     expect(boot).toHaveBeenCalledWith(el);
   });
 
-  it('hasDisplay: boot независим от failed load display', async () => {
+  it('hasDisplay: rejected load переводит lifecycle в failed и повторяется на scan', async () => {
     const name = uniqueName('i22:has-display-load');
     const { root, el } = createRootWithComponent(name);
     const display = vi.fn();
     const boot = vi.fn();
     const onError = vi.fn();
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     let attempt = 0;
     const load = vi.fn(() => {
       attempt += 1;
@@ -633,12 +632,17 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     runComponentLoader(root);
     await flushMicrotasks();
 
-    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenCalledTimes(1);
     expect(display).not.toHaveBeenCalled();
-    expect(boot).toHaveBeenCalledTimes(1);
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledTimes(1);
-    expect(errorSpy).not.toHaveBeenCalled();
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(display).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el);
   });
 
   it('hasDisplay + visible: async fail display ретраится на следующем scan', async () => {
@@ -675,7 +679,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     await flushMicrotasks();
 
     expect(display).toHaveBeenCalledWith(el);
-    expect(load.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(load).toHaveBeenCalledTimes(2);
 
     const lastObserver = observerInstances[observerInstances.length - 1];
     lastObserver.callback(
@@ -687,8 +691,8 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     expect(boot).toHaveBeenCalledWith(el);
   });
 
-  it('hasDisplay + immediate: fail display не сбрасывает успешный boot, display ретраится', async () => {
-    const name = uniqueName('i22:has-display-booted-retry');
+  it('hasDisplay: async display throw переводит lifecycle в failed и ретраится', async () => {
+    const name = uniqueName('i22:has-display-throw-retry');
     const { root, el } = createRootWithComponent(name);
     const display = vi.fn();
     const boot = vi.fn();
@@ -697,7 +701,14 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     let attempt = 0;
     const load = vi.fn(() => {
       attempt += 1;
-      if (attempt === 1) return Promise.reject(new Error('display chunk failed'));
+      if (attempt === 1) {
+        return Promise.resolve({
+          display: () => {
+            throw new Error('display exploded');
+          },
+          boot,
+        });
+      }
       return Promise.resolve({ display, boot });
     });
 
@@ -711,7 +722,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     runComponentLoader(root);
     await flushMicrotasks();
 
-    expect(boot).toHaveBeenCalledTimes(1);
+    expect(boot).not.toHaveBeenCalled();
     expect(display).not.toHaveBeenCalled();
 
     runComponentLoader(root);
@@ -719,6 +730,140 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
 
     expect(boot).toHaveBeenCalledTimes(1);
     expect(display).toHaveBeenCalledWith(el);
+  });
+
+  it('hasDisplay + visible: boot ждёт async display после раннего intersect', async () => {
+    const name = uniqueName('i22:visible-waits-display');
+    const { root, el } = createRootWithComponent(name);
+    const display = vi.fn();
+    const boot = vi.fn();
+    let resolveModule!: (module: { display: typeof display; boot: typeof boot }) => void;
+
+    registerComponent({
+      name,
+      when: 'visible',
+      hasDisplay: true,
+      load: () => new Promise(resolve => {
+        resolveModule = resolve;
+      }),
+    });
+
+    runComponentLoader(root);
+    observerInstances[0].callback(
+      [{ isIntersecting: true, target: el } as unknown as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    );
+
+    expect(boot).not.toHaveBeenCalled();
+
+    resolveModule({ display, boot });
+    await flushMicrotasks();
+
+    expect(display).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el);
+  });
+
+  it('hasDisplay + visible: старый observer не запускает новый lifecycle после display fail', async () => {
+    const name = uniqueName('i22:stale-observer');
+    const { root, el } = createRootWithComponent(name);
+    const display = vi.fn();
+    const boot = vi.fn();
+    let resolveModule!: (module: { display: typeof display; boot: typeof boot }) => void;
+    let attempt = 0;
+    setComponentsErrorHandler(vi.fn());
+
+    registerComponent({
+      name,
+      when: 'visible',
+      hasDisplay: true,
+      load: () => {
+        attempt += 1;
+        if (attempt === 1) return Promise.reject(new Error('display failed'));
+        return new Promise(resolve => {
+          resolveModule = resolve;
+        });
+      },
+    });
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+    runComponentLoader(root);
+
+    observerInstances[0].callback(
+      [{ isIntersecting: true, target: el } as unknown as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    );
+    resolveModule({ display, boot });
+    await flushMicrotasks();
+
+    expect(boot).not.toHaveBeenCalled();
+
+    observerInstances[1].callback(
+      [{ isIntersecting: true, target: el } as unknown as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    );
+    await flushMicrotasks();
+
+    expect(boot).toHaveBeenCalledWith(el);
+  });
+
+  it('hasDisplay + interaction: старый listener не запускает новый lifecycle после display fail', async () => {
+    const name = uniqueName('i22:stale-listener');
+    const { root, el } = createRootWithComponent(name);
+    const listeners = new Map<string, EventListener>();
+    const display = vi.fn();
+    const boot = vi.fn();
+    let attempt = 0;
+    setComponentsErrorHandler(vi.fn());
+
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: EventListener) => listeners.set(event, handler),
+    );
+
+    registerComponent({
+      name,
+      when: 'interaction',
+      hasDisplay: true,
+      load: () => {
+        attempt += 1;
+        if (attempt === 1) return Promise.reject(new Error('display failed'));
+        return Promise.resolve({ display, boot });
+      },
+    });
+
+    runComponentLoader(root);
+    const staleClick = listeners.get('click')!;
+    await flushMicrotasks();
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    staleClick(new Event('click'));
+    expect(boot).not.toHaveBeenCalled();
+
+    listeners.get('click')!(new Event('click'));
+    await flushMicrotasks();
+    expect(boot).toHaveBeenCalledWith(el);
+  });
+
+  it('hasDisplay: boot retry не вызывает load и display повторно', () => {
+    const name = uniqueName('i22:boot-only-retry');
+    const { root, el } = createRootWithComponent(name);
+    const display = vi.fn();
+    const boot = vi.fn().mockImplementationOnce(() => {
+      throw new Error('boot failed');
+    });
+    const load = vi.fn(() => ({ display, boot }));
+    setComponentsErrorHandler(vi.fn());
+
+    registerComponent({ name, hasDisplay: true, load });
+
+    expect(() => runComponentLoader(root)).toThrow('boot failed');
+    runComponentLoader(root);
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(display).toHaveBeenCalledTimes(1);
+    expect(boot).toHaveBeenCalledTimes(2);
+    expect(boot).toHaveBeenLastCalledWith(el);
   });
 
   it('thenable load (не instanceof Promise) дожидается и вызывает boot', async () => {
