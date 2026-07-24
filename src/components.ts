@@ -60,7 +60,6 @@ export interface ComponentDefinition {
 
 /** pending — ждёт стратегии; booting — in-flight; failed — можно retry */
 type BootState = 'pending' | 'booting' | 'booted' | 'failed';
-type ModuleResult = ComponentModule | Promise<ComponentModule>;
 
 interface BootLifecycle {
   state: BootState;
@@ -228,7 +227,7 @@ function scheduleComponent(
     tryBoot(el, lifecycle);
   } else if (def.when === 'visible') {
     observer.observe(el);
-  } else {
+  } else if (def.when === 'interaction') {
     attachInteractionListeners(el, def.events, lifecycle);
   }
 }
@@ -285,7 +284,7 @@ function tryBoot(
   lifecycle.state = 'booting';
   log('init', el.getAttribute('data-component')!, 'boot');
 
-  let result: ModuleResult;
+  let result: ComponentModule | Promise<ComponentModule>;
   try {
     result = def.load();
   } catch (error) {
@@ -323,7 +322,7 @@ function startDisplay(
   el: Element,
   def: ComponentDefinition,
 ): void {
-  let result: ModuleResult;
+  let result: ComponentModule | Promise<ComponentModule>;
   try {
     result = def.load();
   } catch (error) {
