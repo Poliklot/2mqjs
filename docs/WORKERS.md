@@ -153,21 +153,28 @@ setWorkersDebug(true);
 
 * origin не получает своё сообщение;
 * peers + main `onPort` — получают;
-* loopback: `emitPort(port, payload, thatWorker)`.
 
-Filter (subscription) — только нужные ports:
+Filter ограничивает только broadcast ports:
 
 ```ts
+import { registerWorker, sendToWorker } from '2mqjs/workers';
+
 await registerWorker({
   name: 'catalog',
   src: () => import('./catalog.worker?worker'),
   ports: ['catalog:fetch', 'catalog:warm'],
 });
+
+sendToWorker('catalog', {
+  port: 'catalog:fetch',
+  payload: { q: 'shoes' },
+});
 ```
 
-- omit `ports` — все ports (как раньше);
+- если `ports` не передан — все ports (как раньше);
+- `ports: []` — ни одного broadcast port;
 - `ports: [...]` — только список;
-- target с main: `emitPort('catalog:fetch', q, workerInstance)`; non-port — `sendToWorker(name, data)`.
+- target `sendToWorker(name, { port, payload })` не проходит через main bus и не режется filter.
 
 Подробнее: [PORTS.md — Routing workers](./PORTS.md#routing-workers-issue-21).
 

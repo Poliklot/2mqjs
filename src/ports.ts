@@ -1,13 +1,14 @@
 /**
  * 2mqjs — единая шина портов (pub/sub) с гарантированным singleton-состоянием.
  *
- *   emitPort('name', payload)           — broadcast (+ optional target Worker)
- *   onPort('name', cb)                  — подписка (off-функция)
- *   oncePort('name', cb)                — одноразовая подписка (off)
- *   getPortSnapshot('name')             — последнее значение, если было
- *   setPortsDebug(true | opts)          — логирование
+ *   emitPort('name', payload)        — публикация
+ *   onPort('name', cb)               — подписка   (off-функция)
+ *   oncePort('name', cb)             — одноразовая подписка (off)
+ *   getPortSnapshot('name')          — последнее значение, если было
+ *   setPortsDebug(true | opts)       — включить/выключить логирование
  *
- * Коллекции на globalThis под Symbol.for('2mqjs.ports') — один «центр» на все копии модуля.
+ * Коллекции лежат на globalThis под Symbol.for('2mqjs.ports'),
+ * поэтому любая копия модуля использует один и тот же «центр».
  */
 
 export type PortName = string;
@@ -59,15 +60,9 @@ function acceptsPort(worker: Worker, port: PortName): boolean {
 function postToWorkers(
   port: PortName,
   payload: unknown,
-  opts: { to?: Worker; except?: Worker },
+  except?: Worker,
 ): void {
   const message = { port, payload };
-  const { to, except } = opts;
-
-  if (to) {
-    if (workers.has(to) && to !== except) to.postMessage(message);
-    return;
-  }
 
   for (const worker of workers) {
     if (worker === except) continue;
@@ -80,22 +75,17 @@ function postToWorkers(
 
 /**
  * Публикация в main listeners + workers.
- * @param to — optional target worker (explicit; filter не режет). Без `to` — broadcast.
  */
-export function emitPort<T = unknown>(
-  port: PortName,
-  payload: T,
-  to?: Worker,
-): void {
+export function emitPort<T = unknown>(port: PortName, payload: T): void {
   log('emit', port, payload);
   last.set(port, payload);
   listeners.get(port)?.forEach(cb => (cb as PortListener<T>)(payload));
-  postToWorkers(port, payload, { to });
+  postToWorkers(port, payload);
 }
 
 /**
  * Internal: worker→main proxy без echo origin (issue #21).
- * Main listeners + peers; origin только если когда-либо target'нут через emitPort(..., origin).
+ * Main listeners + peers получают payload, origin — нет.
  */
 export function _emitPortFromWorker<T = unknown>(
   port: PortName,
@@ -105,7 +95,7 @@ export function _emitPortFromWorker<T = unknown>(
   log('emit', port, payload);
   last.set(port, payload);
   listeners.get(port)?.forEach(cb => (cb as PortListener<T>)(payload));
-  postToWorkers(port, payload, { except: origin });
+  postToWorkers(port, payload, origin);
 }
 
 export function onPort<T = unknown>(
@@ -174,11 +164,19 @@ export function setPortsDebug(
  * @param ports — если задан, worker получает только эти port names (subscription filter).
  */
 export function _attachWorker(worker: Worker, ports?: readonly string[]): void {
+  const isAttached = workers.has(worker);
   workers.add(worker);
-  if (ports && ports.length > 0) {
-    workerPorts.set(worker, new Set(ports));
-  } else {
+
+  if (ports === undefined) {
     workerPorts.delete(worker);
+    return;
+  }
+
+  const filter = workerPorts.get(worker);
+  if (filter) {
+    ports.forEach(port => filter.add(port));
+  } else if (!isAttached) {
+    workerPorts.set(worker, new Set(ports));
   }
 }
 

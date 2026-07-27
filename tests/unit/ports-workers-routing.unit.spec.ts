@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { emitPort, onPort } from '../../src/ports.js';
-import { registerWorker, terminateWorker } from '../../src/workers.js';
+import { emitPort, getPortSnapshot, onPort } from '../../src/ports.js';
+import { registerWorker, sendToWorker, terminateWorker } from '../../src/workers.js';
 
 function mockWorker() {
   return {
@@ -39,6 +39,27 @@ describe('issue-21: ports ↔ workers routing и echo', () => {
 
     expect(portPosts(worker)).toEqual([]);
 
+    terminateWorker(name);
+  });
+
+  it('worker-originated payload приходит main listener и сохраняется в snapshot', async () => {
+    const worker = mockWorker();
+    const name = 'test:issue-21:main-contract';
+    const port = 'issue-21:main-contract';
+    const payload = { ok: true };
+    const listener = vi.fn();
+    const off = onPort(port, listener, false);
+
+    await registerWorker({ name, src: () => worker });
+    vi.mocked(worker.postMessage).mockClear();
+
+    workerMessageHandler(worker)({ data: { port, payload } } as MessageEvent);
+
+    expect(listener).toHaveBeenCalledExactlyOnceWith(payload);
+    expect(getPortSnapshot(port)).toEqual(payload);
+    expect(portPosts(worker)).toEqual([]);
+
+    off();
     terminateWorker(name);
   });
 
@@ -87,33 +108,36 @@ describe('issue-21: ports ↔ workers routing и echo', () => {
     terminateWorker('test:issue-21:broadcast-b');
   });
 
-  it('target: emitPort(port, payload, worker) только одному', async () => {
+  it('target: sendToWorker(name, { port, payload }) отправляет только выбранному worker', async () => {
     const a = mockWorker();
     const b = mockWorker();
-    await registerWorker({ name: 'test:issue-21:target-a', src: () => a });
+    const port = 'issue-21:target';
+    const payload = 'only-a';
+    await registerWorker({ name: 'test:issue-21:target-a', src: () => a, ports: [] });
     await registerWorker({ name: 'test:issue-21:target-b', src: () => b });
     vi.mocked(a.postMessage).mockClear();
     vi.mocked(b.postMessage).mockClear();
 
-    emitPort('issue-21:target', 'only-a', a);
+    sendToWorker('test:issue-21:target-a', { port, payload });
 
-    expect(portPosts(a)).toEqual([{ port: 'issue-21:target', payload: 'only-a' }]);
+    expect(portPosts(a)).toEqual([{ port, payload }]);
     expect(portPosts(b)).toEqual([]);
 
     terminateWorker('test:issue-21:target-a');
     terminateWorker('test:issue-21:target-b');
   });
 
-  it('явно target origin — echo разрешён (explicit request)', async () => {
-    const worker = mockWorker();
-    await registerWorker({ name: 'test:issue-21:explicit-echo', src: () => worker });
-    vi.mocked(worker.postMessage).mockClear();
+  it('target неизвестному имени не публикует payload в main bus', () => {
+    const port = 'issue-21:unknown-target';
+    const listener = vi.fn();
+    const off = onPort(port, listener, false);
 
-    emitPort('issue-21:explicit', 42, worker);
+    sendToWorker('test:issue-21:missing-worker', { port, payload: 'ignored' });
 
-    expect(portPosts(worker)).toEqual([{ port: 'issue-21:explicit', payload: 42 }]);
+    expect(listener).not.toHaveBeenCalled();
+    expect(getPortSnapshot(port)).toBeUndefined();
 
-    terminateWorker('test:issue-21:explicit-echo');
+    off();
   });
 
   it('registerWorker({ ports }) — subscription filter на broadcast', async () => {
@@ -142,5 +166,50 @@ describe('issue-21: ports ↔ workers routing и echo', () => {
 
     terminateWorker('test:issue-21:filter');
     terminateWorker('test:issue-21:all');
+  });
+
+  it('ports: [] — worker не получает ни одного broadcast', async () => {
+    const worker = mockWorker();
+    const name = 'test:issue-21:empty-filter';
+
+    await registerWorker({ name, src: () => worker, ports: [] });
+    vi.mocked(worker.postMessage).mockClear();
+
+    emitPort('issue-21:empty-filter', 'ignored');
+
+    expect(portPosts(worker)).toEqual([]);
+
+    terminateWorker(name);
+  });
+
+  it('aliases одного Worker объединяют filters и не дублируют message listener', async () => {
+    const worker = mockWorker();
+    const firstName = 'test:issue-21:alias:first';
+    const secondName = 'test:issue-21:alias:second';
+    const thirdName = 'test:issue-21:alias:all';
+
+    await registerWorker({ name: firstName, src: () => worker, ports: [] });
+    await registerWorker({
+      name: secondName,
+      src: () => worker,
+      ports: ['issue-21:alias:allowed'],
+    });
+    vi.mocked(worker.postMessage).mockClear();
+
+    emitPort('issue-21:alias:allowed', 1);
+    emitPort('issue-21:alias:denied', 2);
+
+    expect(vi.mocked(worker.addEventListener)).toHaveBeenCalledTimes(1);
+    expect(portPosts(worker)).toEqual([{ port: 'issue-21:alias:allowed', payload: 1 }]);
+
+    await registerWorker({ name: thirdName, src: () => worker });
+    vi.mocked(worker.postMessage).mockClear();
+
+    emitPort('issue-21:alias:denied', 3);
+
+    expect(vi.mocked(worker.addEventListener)).toHaveBeenCalledTimes(1);
+    expect(portPosts(worker)).toEqual([{ port: 'issue-21:alias:denied', payload: 3 }]);
+
+    terminateWorker(firstName);
   });
 });

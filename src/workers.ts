@@ -32,14 +32,17 @@ export async function registerWorker(opts: WorkerOptions): Promise<void> {
   // когда она возвращает Worker напрямую, без поля default.
   const workerOrModule = await opts.src();
   const w = 'default' in workerOrModule ? workerOrModule.default : workerOrModule;
+  const isRegisteredWorker = Array.from(registry.values()).includes(w);
 
-  w.addEventListener(
-    'message',
-    (e: MessageEvent<{ port: string; payload: unknown }>) => {
-      const { port, payload } = e.data ?? {};
-      if (typeof port === 'string') _emitPortFromWorker(port, payload, w);
-    },
-  );
+  if (!isRegisteredWorker) {
+    w.addEventListener(
+      'message',
+      (e: MessageEvent<{ port: string; payload: unknown }>) => {
+        const { port, payload } = e.data ?? {};
+        if (typeof port === 'string') _emitPortFromWorker(port, payload, w);
+      },
+    );
+  }
 
   if (opts.initMessage !== undefined) w.postMessage(opts.initMessage);
 

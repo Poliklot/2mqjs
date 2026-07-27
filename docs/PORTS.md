@@ -42,13 +42,13 @@ offPort('cart:add', handler);
 
 ## API
 
-| Функция | Описание |
-| ------------------------ | ------------------------------------------------------------------ |
-| `emitPort(event, data?, worker?)` | Main listeners + workers; 3-й arg = target worker |
-| `onPort(event, fn)` | Подписка main; возвращает off |
-| `oncePort(event, fn)` | Одноразовая подписка |
-| `getPortSnapshot(event)` | Последний payload, если был |
-| `setPortsDebug(true)` | Отладочное логирование |
+| Функция                  | Где доступна | Описание                                                           |
+| ------------------------ | ------------ | ------------------------------------------------------------------ |
+| `emitPort(event, data?)` | main, worker | Отправить событие в шину                                           |
+| `onPort(event, fn)`      | main, worker | Подписаться на событие, вернуть функцию отписки                    |
+| `offPort(event, fn)`     | main, worker | Отписаться от события                                              |
+| `oncePort(event, fn)`    | main, worker | Подписаться один раз и вернуть функцию досрочной отписки           |
+| `setPortsDebug(true)`    | main, worker | Включить отладочное логирование                                    |
 
 > В main: `import { emitPort } from '2mqjs/ports'`
 > В воркере: `import { emitPort } from '2mqjs/ports/worker'`
@@ -98,37 +98,35 @@ registerTask({
 
 ## Routing workers (issue #21)
 
-Main listeners (`onPort` / `oncePort`) **всегда** получают payload. Fan-out в workers — минимальный:
+`emitPort(port, payload)` сохраняет broadcast: main listeners и workers получают payload.
+Адресный port отправляется по имени worker и не публикуется в main bus:
 
 ```ts
 import { emitPort } from '2mqjs/ports';
-import { registerWorker } from '2mqjs/workers';
+import { registerWorker, sendToWorker } from '2mqjs/workers';
 
-// 1) broadcast — все attached workers
 emitPort('cart:add', { id: 1 });
 
-// 2) target — один Worker (3-й аргумент)
-emitPort('catalog:fetch', query, catalogWorker);
-
-// 3) subscription filter при регистрации (worker не ест чужой broadcast)
 await registerWorker({
   name: 'catalog',
   src: () => import('./catalog.worker?worker'),
   ports: ['catalog:fetch', 'catalog:warm'],
 });
+
+sendToWorker('catalog', {
+  port: 'catalog:fetch',
+  payload: query,
+});
 ```
 
-| Режим | Как |
-| ----- | --- |
-| broadcast | `emitPort(port, data)` |
-| target | `emitPort(port, data, worker)` |
-| subscription | `registerWorker({ ports: [...] })` |
+- Если `ports` не передан — worker получает все broadcast ports.
+- `ports: []` — worker не получает broadcast ports.
+- `ports: [...]` — worker получает только перечисленные broadcast ports.
+- `sendToWorker(name, { port, payload })` обходит filter как явная адресная доставка.
+- Worker-originated message приходит main listeners и peers, но не возвращается origin напрямую.
 
-**Echo:** worker→main через `registerWorker` **не** возвращает сообщение origin.  
-Loopback только явно: `emitPort(port, data, originWorker)`.
-
-**Имена:** `catalog:*`, `analytics:*` — один worker ≈ один bounded context.  
-High-frequency ports — `ports: [...]` или target, не кормить всех workers.
+Используйте `catalog:*`, `analytics:*`: один worker ≈ один bounded context. Для высокочастотных
+сообщений выбирайте `ports: [...]` или target вместо broadcast.
 
 ## Best practices
 
@@ -136,7 +134,6 @@ High-frequency ports — `ports: [...]` или target, не кормить вс�
 * Используйте **один файл со всеми типами событий** для автодополнения.
 * Не злоупотребляйте частыми событиями с тяжёлыми данными — передавайте только необходимое.
 * Для «запрос-ответ» паттерна используйте уникальные ID в событии и фильтруйте в обработчиках.
-* Worker-only трафик: target / `ports`, не лишний broadcast.
 
 ---
 
