@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18, 20, 22, 24]
+        node-version: [20, 22, 24]
 
     steps:
       - name: Checkout
@@ -36,3 +36,31 @@ jobs:
 
       - name: Run release gate
         run: npm run release:check
+
+  node-18-runtime:
+    name: Node 18 runtime compatibility
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup build Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run build
+
+      - name: Setup runtime Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 18
+
+      - name: Run package smoke on Node 18
+        run: npm run smoke:package

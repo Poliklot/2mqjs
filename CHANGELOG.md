@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 This project uses [Release Please](https://github.com/googleapis/release-please) and follows Conventional Commits for automated release notes.
 
+## [0.1.4](https://github.com/Poliklot/2mqjs/compare/2mqjs-v0.1.3...2mqjs-v0.1.4) (2026-07-27)
+
+### Bug Fixes
+
+* update Playwright, Vite, and Vitest while preserving Node 18 runtime smoke coverage
+
 ## [0.1.3](https://github.com/Poliklot/2mqjs/compare/2mqjs-v0.1.2...2mqjs-v0.1.3) (2026-07-23)
 
 
