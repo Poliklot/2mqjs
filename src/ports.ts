@@ -62,13 +62,21 @@ function postToWorkers(
   payload: unknown,
   except?: Worker,
 ): void {
-  const message = { port, payload };
+  let message: { port: PortName; payload: unknown } | undefined;
 
   for (const worker of workers) {
     if (worker === except) continue;
     if (!acceptsPort(worker, port)) continue;
+    if (!message) message = { port, payload };
     worker.postMessage(message);
   }
+}
+
+function publishPort<T>(port: PortName, payload: T, except?: Worker): void {
+  log('emit', port, payload);
+  last.set(port, payload);
+  listeners.get(port)?.forEach(cb => (cb as PortListener<T>)(payload));
+  postToWorkers(port, payload, except);
 }
 
 /* ---------- API ---------- */
@@ -77,25 +85,7 @@ function postToWorkers(
  * Публикация в main listeners + workers.
  */
 export function emitPort<T = unknown>(port: PortName, payload: T): void {
-  log('emit', port, payload);
-  last.set(port, payload);
-  listeners.get(port)?.forEach(cb => (cb as PortListener<T>)(payload));
-  postToWorkers(port, payload);
-}
-
-/**
- * Internal: worker→main proxy без echo origin (issue #21).
- * Main listeners + peers получают payload, origin — нет.
- */
-export function _emitPortFromWorker<T = unknown>(
-  port: PortName,
-  payload: T,
-  origin: Worker,
-): void {
-  log('emit', port, payload);
-  last.set(port, payload);
-  listeners.get(port)?.forEach(cb => (cb as PortListener<T>)(payload));
-  postToWorkers(port, payload, origin);
+  publishPort(port, payload);
 }
 
 export function onPort<T = unknown>(
@@ -165,7 +155,17 @@ export function setPortsDebug(
  */
 export function _attachWorker(worker: Worker, ports?: readonly string[]): void {
   const isAttached = workers.has(worker);
-  workers.add(worker);
+
+  if (!isAttached) {
+    worker.addEventListener(
+      'message',
+      (event: MessageEvent<{ port: string; payload: unknown }>) => {
+        const { port, payload } = event.data ?? {};
+        if (typeof port === 'string') publishPort(port, payload, worker);
+      },
+    );
+    workers.add(worker);
+  }
 
   if (ports === undefined) {
     workerPorts.delete(worker);

@@ -147,9 +147,9 @@ setWorkersDebug(true);
 * Для связанных событий используйте префикс имени: `catalog:*`.
 * Разбивайте по доменам: один воркер — один bounded context.
 
-## Ports routing и echo
+## Ports routing и direct echo
 
-`registerWorker` проксирует `{ port, payload }` в шину **без echo origin**:
+`registerWorker` проксирует `{ port, payload }` в шину **без direct echo origin**:
 
 * origin не получает своё сообщение;
 * peers + main `onPort` — получают;

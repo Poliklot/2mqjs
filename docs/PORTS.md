@@ -96,7 +96,7 @@ registerTask({
 
 ---
 
-## Routing workers (issue #21)
+## Routing workers
 
 `emitPort(port, payload)` сохраняет broadcast: main listeners и workers получают payload.
 Адресный port отправляется по имени worker и не публикуется в main bus:
@@ -123,7 +123,7 @@ sendToWorker('catalog', {
 - `ports: []` — worker не получает broadcast ports.
 - `ports: [...]` — worker получает только перечисленные broadcast ports.
 - `sendToWorker(name, { port, payload })` обходит filter как явная адресная доставка.
-- Worker-originated message приходит main listeners и peers, но не возвращается origin напрямую.
+- Worker-originated message приходит main listeners и peers, но не возвращается непосредственному origin.
 
 Используйте `catalog:*`, `analytics:*`: один worker ≈ один bounded context. Для высокочастотных
 сообщений выбирайте `ports: [...]` или target вместо broadcast.

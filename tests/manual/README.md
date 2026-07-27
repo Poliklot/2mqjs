@@ -8,10 +8,6 @@
 
 Каждый сценарий хранится изолированно в `issues/<issue>/<task>/<scenario>/` и содержит собственные `index.html` и `main.ts`.
 
-## Issue #21
-
-- `port-worker-echo` — worker-originated port не echo’ится origin; peer получает payload.
-
 ## Issue #3
 
 - `resize-subscriptions` — очистка resize-listener после отписки.

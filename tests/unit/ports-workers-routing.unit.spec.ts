@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import * as portsApi from '../../src/ports.js';
 import { emitPort, getPortSnapshot, onPort } from '../../src/ports.js';
 import { registerWorker, sendToWorker, terminateWorker } from '../../src/workers.js';
 
@@ -27,6 +28,36 @@ function portPosts(worker: Worker) {
 }
 
 describe('issue-21: ports ↔ workers routing и echo', () => {
+  it('не экспортирует internal worker→ports bridge', () => {
+    expect('_emitPortFromWorker' in portsApi).toBe(false);
+  });
+
+  it('обрабатывает port-ответ worker во время initMessage', async () => {
+    const port = 'issue-21:init-response';
+    const payload = { ready: true };
+    const listener = vi.fn();
+    const off = onPort(port, listener, false);
+    let onMessage: ((event: MessageEvent) => void) | undefined;
+    const worker = {
+      addEventListener: vi.fn((_type, callback) => {
+        onMessage = callback as (event: MessageEvent) => void;
+      }),
+      postMessage: vi.fn((message: unknown) => {
+        if (message === 'init') onMessage?.({ data: { port, payload } } as MessageEvent);
+      }),
+      terminate: vi.fn(),
+    } as unknown as Worker;
+    const name = 'test:issue-21:init-response';
+
+    await registerWorker({ name, src: () => worker, initMessage: 'init' });
+
+    expect(listener).toHaveBeenCalledExactlyOnceWith(payload);
+    expect(getPortSnapshot(port)).toEqual(payload);
+
+    off();
+    terminateWorker(name);
+  });
+
   it('1 worker: сообщение от worker не возвращается origin (echo)', async () => {
     const worker = mockWorker();
     const name = 'test:issue-21:echo-one';
