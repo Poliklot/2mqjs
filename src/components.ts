@@ -5,17 +5,17 @@ export type ComponentModule = {
   /**
    * Отвечает за первичное отображение, не требует данных или воркеров
    */
-  display?: (el: Element) => void;
+  display?: (el: Element) => void | PromiseLike<void>;
 
   /**
    * Основной метод — инициализация бизнес-логики, требует данных/воркеров
    */
-  boot?: (el: Element) => void;
+  boot?: (el: Element) => void | PromiseLike<void>;
 
   /**
    * Если компонент не использует разделение display/boot — можно использовать default
    */
-  default?: (el: Element) => void;
+  default?: (el: Element) => void | PromiseLike<void>;
 };
 
 /**
@@ -142,7 +142,7 @@ function runWithModule(
   el: Element,
   def: ComponentDefinition,
   lifecycle: BootLifecycle,
-  use: (mod: ComponentModule) => void,
+  use: (mod: ComponentModule) => void | PromiseLike<void>,
 ): void {
   let result: ComponentModule | Promise<ComponentModule>;
   try {
@@ -158,7 +158,8 @@ function runWithModule(
 
   const ok = (mod: ComponentModule): void => {
     if (bootLifecycles.get(el) !== lifecycle) return;
-    use(mod);
+    const promise = asPromise(use(mod));
+    if (promise) promise.catch(error => fail(el, lifecycle, error));
   };
   const promise = asPromise(result);
   if (promise) {
@@ -325,11 +326,14 @@ function tryBoot(el: Element, lifecycle: BootLifecycle): void {
   runWithModule(el, def, lifecycle, mod => {
     if (lifecycle.state === 'failed') return;
 
-    if (mod.boot) mod.boot(el);
-    else if (!def.hasDisplay && typeof mod.default === 'function') mod.default(el);
+    let result: void | PromiseLike<void> = undefined;
+    if (mod.boot) result = mod.boot(el);
+    else if (!def.hasDisplay && typeof mod.default === 'function') result = mod.default(el);
 
-    lifecycle.state = 'booted';
-    shared.initialized?.add(el);
+    return completeLifecycleStep(el, lifecycle, result, () => {
+      lifecycle.state = 'booted';
+      shared.initialized?.add(el);
+    });
   });
 }
 
@@ -341,10 +345,25 @@ function prepareDisplay(
   if (lifecycle.module !== undefined) return;
 
   runWithModule(el, def, lifecycle, mod => {
-    mod.display?.(el);
-    lifecycle.displayReady = true;
-    if (lifecycle.bootRequested) tryBoot(el, lifecycle);
+    return completeLifecycleStep(el, lifecycle, mod.display?.(el), () => {
+      lifecycle.displayReady = true;
+      if (lifecycle.bootRequested) tryBoot(el, lifecycle);
+    });
   });
+}
+
+function completeLifecycleStep(
+  el: Element,
+  lifecycle: BootLifecycle,
+  result: void | PromiseLike<void>,
+  complete: () => void,
+): void | Promise<void> {
+  const guardedComplete = (): void => {
+    if (bootLifecycles.get(el) === lifecycle && lifecycle.state !== 'failed') complete();
+  };
+  const promise = asPromise(result);
+  if (promise) return promise.then(guardedComplete);
+  guardedComplete();
 }
 
 function fail(el: Element, lifecycle: BootLifecycle, error: unknown): void {

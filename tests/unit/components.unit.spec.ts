@@ -350,6 +350,43 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     expect(successfulBoot).toHaveBeenCalledWith(el);
   });
 
+  it('rejected async default переводит lifecycle в failed и разрешает retry', async () => {
+    const name = uniqueName('i22:async-default-reject');
+    const { root, el } = createRootWithComponent(name);
+    const successfulDefault = vi.fn();
+    const onError = vi.fn();
+    let attempt = 0;
+    setComponentsErrorHandler(onError);
+
+    registerComponent({
+      name,
+      when: 'immediate',
+      load: () => {
+        attempt += 1;
+        if (attempt === 1) {
+          return {
+            default: async () => {
+              throw new Error('async default failed');
+            },
+          };
+        }
+        return { default: successfulDefault };
+      },
+    });
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(successfulDefault).not.toHaveBeenCalled();
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(attempt).toBe(2);
+    expect(successfulDefault).toHaveBeenCalledWith(el);
+  });
+
   it('rejected async display не запускает boot и разрешает полный retry', async () => {
     const name = uniqueName('i22:async-display-reject');
     const { root, el } = createRootWithComponent(name);
