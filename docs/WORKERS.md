@@ -147,16 +147,12 @@ setWorkersDebug(true);
 * Для связанных событий используйте префикс имени: `catalog:*`.
 * Разбивайте по доменам: один воркер — один bounded context.
 
-## Ports routing и direct echo
+## Какие сообщения получает Worker
 
-`registerWorker` проксирует `{ port, payload }` в шину **без direct echo origin**:
-
-* origin не получает своё сообщение;
-* peers + main `onPort` — получают;
-
-Filter ограничивает только broadcast ports:
+При регистрации можно перечислить ports, которые нужны Worker:
 
 ```ts
+import { emitPort } from '2mqjs/ports';
 import { registerWorker, sendToWorker } from '2mqjs/workers';
 
 await registerWorker({
@@ -165,18 +161,30 @@ await registerWorker({
   ports: ['catalog:fetch', 'catalog:warm'],
 });
 
+emitPort('catalog:fetch', { query: 'shoes' });
+```
+
+В этом примере `catalog` будет получать сообщения `catalog:fetch` и `catalog:warm`,
+отправленные через `emitPort`, но не получает остальные ports.
+
+Чтобы отправить сообщение непосредственно Worker `catalog`, используйте его имя:
+
+```ts
 sendToWorker('catalog', {
   port: 'catalog:fetch',
-  payload: { q: 'shoes' },
+  payload: { query: 'shoes' },
 });
 ```
 
-- если `ports` не передан — все ports (как раньше);
-- `ports: []` — ни одного broadcast port;
-- `ports: [...]` — только список;
-- target `sendToWorker(name, { port, payload })` не проходит через main bus и не режется filter.
+Такое сообщение не получают другие Workers и подписчики `onPort` в основном коде
+страницы.
 
-Подробнее: [PORTS.md — Routing workers](./PORTS.md#routing-workers-issue-21).
+Если Worker сам отправляет `{ port, payload }`, сообщение не возвращается ему сразу,
+но его получают основной код страницы и другие Workers, которым разрешён этот port.
+Это не защищает от цикла, который могут создать несколько Workers, отвечая друг другу
+одинаковыми сообщениями.
+
+Подробнее: [кому доставляются сообщения ports](./PORTS.md#worker-routing).
 
 ---
 

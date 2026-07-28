@@ -96,16 +96,16 @@ registerTask({
 
 ---
 
-## Routing workers
+## Worker routing
 
-`emitPort(port, payload)` сохраняет broadcast: main listeners и workers получают payload.
-Адресный port отправляется по имени worker и не публикуется в main bus:
+Port — это имя сообщения, например `catalog:fetch`. Сообщение можно отправить всем
+заинтересованным Workers или только одному Worker.
+
+При регистрации Worker укажите, какие ports он должен получать:
 
 ```ts
 import { emitPort } from '2mqjs/ports';
-import { registerWorker, sendToWorker } from '2mqjs/workers';
-
-emitPort('cart:add', { id: 1 });
+import { registerWorker } from '2mqjs/workers';
 
 await registerWorker({
   name: 'catalog',
@@ -113,20 +113,43 @@ await registerWorker({
   ports: ['catalog:fetch', 'catalog:warm'],
 });
 
+emitPort('catalog:fetch', { query: 'shoes' });
+```
+
+Теперь Worker `catalog` будет получать только сообщения с именами `catalog:fetch` и
+`catalog:warm`, отправленные через `emitPort`.
+
+Правила настройки:
+
+- без `ports` Worker получает все сообщения от `emitPort`;
+- с `ports: []` Worker не получает сообщения от `emitPort`;
+- с `ports: ['a', 'b']` Worker получает только ports `a` и `b`.
+
+Чтобы отправить сообщение только одному Worker, укажите его имя:
+
+```ts
+import { sendToWorker } from '2mqjs/workers';
+
 sendToWorker('catalog', {
   port: 'catalog:fetch',
-  payload: query,
+  payload: { query: 'shoes' },
 });
 ```
 
-- Если `ports` не передан — worker получает все broadcast ports.
-- `ports: []` — worker не получает broadcast ports.
-- `ports: [...]` — worker получает только перечисленные broadcast ports.
-- `sendToWorker(name, { port, payload })` обходит filter как явная адресная доставка.
-- Worker-originated message приходит main listeners и peers, но не возвращается непосредственному origin.
+Это сообщение получит только Worker `catalog`. Подписчики `onPort` в основном коде
+страницы (main thread) и другие Workers его не получат. Настройка `ports` не ограничивает
+такую адресную отправку.
 
-Используйте `catalog:*`, `analytics:*`: один worker ≈ один bounded context. Для высокочастотных
-сообщений выбирайте `ports: [...]` или target вместо broadcast.
+Когда Worker отправляет `{ port, payload }`, сообщение получают подписчики `onPort` в
+основном коде страницы и другие Workers, которым разрешён этот port. Тому же Worker
+сообщение сразу обратно не отправляется. Это защищает только от непосредственного
+возврата: Workers, которые отвечают друг другу одинаковыми сообщениями, всё ещё могут
+создать цикл.
+
+Выбирайте понятные имена сообщений с префиксом, например `catalog:fetch` или
+`analytics:track`. По префиксу видно, к какой части приложения относится сообщение.
+Если сообщение нужно только одному Worker, используйте `sendToWorker`; если Worker
+нужны только отдельные сообщения, перечислите их в `ports`.
 
 ## Best practices
 
