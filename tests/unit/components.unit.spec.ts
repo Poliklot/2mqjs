@@ -313,6 +313,84 @@ describe('components: регрессия — существующие happy path
 });
 
 describe('issue #22: lifecycle boot, retry, ошибки', () => {
+  it('rejected async boot переводит lifecycle в failed и разрешает retry', async () => {
+    const name = uniqueName('i22:async-boot-reject');
+    const { root, el } = createRootWithComponent(name);
+    const successfulBoot = vi.fn();
+    const onError = vi.fn();
+    let attempt = 0;
+    setComponentsErrorHandler(onError);
+
+    registerComponent({
+      name,
+      when: 'immediate',
+      load: () => {
+        attempt += 1;
+        if (attempt === 1) {
+          return {
+            boot: async () => {
+              throw new Error('async boot failed');
+            },
+          };
+        }
+        return { boot: successfulBoot };
+      },
+    });
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(successfulBoot).not.toHaveBeenCalled();
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(attempt).toBe(2);
+    expect(successfulBoot).toHaveBeenCalledWith(el);
+  });
+
+  it('rejected async display не запускает boot и разрешает полный retry', async () => {
+    const name = uniqueName('i22:async-display-reject');
+    const { root, el } = createRootWithComponent(name);
+    const successfulDisplay = vi.fn();
+    const boot = vi.fn();
+    const onError = vi.fn();
+    let attempt = 0;
+    setComponentsErrorHandler(onError);
+
+    registerComponent({
+      name,
+      when: 'immediate',
+      hasDisplay: true,
+      load: () => {
+        attempt += 1;
+        if (attempt === 1) {
+          return {
+            display: async () => {
+              throw new Error('async display failed');
+            },
+            boot,
+          };
+        }
+        return { display: successfulDisplay, boot };
+      },
+    });
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(boot).not.toHaveBeenCalled();
+
+    runComponentLoader(root);
+    await flushMicrotasks();
+
+    expect(attempt).toBe(2);
+    expect(successfulDisplay).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledTimes(1);
+  });
+
   it('visible: не дублирует pending observe при повторных scan', () => {
     const name = uniqueName('i22:visible-pending');
     const { root, el } = createRootWithComponent(name);
