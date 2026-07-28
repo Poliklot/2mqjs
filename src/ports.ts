@@ -13,6 +13,9 @@
 
 export type PortName = string;
 export type PortListener<T = unknown> = (payload: T) => void;
+type WorkerMessageListener = (
+  event: MessageEvent<{ port: string; payload: unknown }>,
+) => void;
 
 /* ---------- Singleton-хранилище ---------- */
 interface SharedState {
@@ -21,6 +24,7 @@ interface SharedState {
   workers: Set<Worker>;
   /** Только workers с ограниченным списком ports; отсутствие = all. */
   workerPorts: Map<Worker, Set<PortName>>;
+  workerMessageListeners: Map<Worker, WorkerMessageListener>;
   debug: { emit: boolean; listen: boolean };
 }
 
@@ -32,12 +36,14 @@ const shared: SharedState =
     last: new Map(),
     workers: new Set(),
     workerPorts: new Map(),
+    workerMessageListeners: new Map(),
     debug: { emit: false, listen: false },
   });
 
 if (!shared.workerPorts) shared.workerPorts = new Map();
+if (!shared.workerMessageListeners) shared.workerMessageListeners = new Map();
 
-const { listeners, last, workers, workerPorts, debug } = shared;
+const { listeners, last, workers, workerPorts, workerMessageListeners, debug } = shared;
 
 /* ---------- Вспомогалка логирования ---------- */
 function log(kind: 'emit' | 'listen', port: PortName, data?: unknown) {
@@ -151,25 +157,40 @@ export function setPortsDebug(
 /* -------- internal: привязка воркеров -------- */
 
 /**
+ * Привязывает Worker и возвращает функцию, которая восстанавливает предыдущее состояние.
+ *
  * @param ports — если задан, worker получает только эти port names (subscription filter).
  */
-export function _attachWorker(worker: Worker, ports?: readonly string[]): void {
+export function _attachWorker(worker: Worker, ports?: readonly string[]): () => void {
   const isAttached = workers.has(worker);
+  const previousPorts = workerPorts.has(worker)
+    ? new Set(workerPorts.get(worker))
+    : undefined;
+
+  const rollback = () => {
+    if (!isAttached) {
+      _detachWorker(worker);
+      return;
+    }
+
+    if (previousPorts) workerPorts.set(worker, previousPorts);
+    else workerPorts.delete(worker);
+  };
 
   if (!isAttached) {
-    worker.addEventListener(
-      'message',
-      (event: MessageEvent<{ port: string; payload: unknown }>) => {
-        const { port, payload } = event.data ?? {};
-        if (typeof port === 'string') publishPort(port, payload, worker);
-      },
-    );
+    const onMessage: WorkerMessageListener = event => {
+      if (!workers.has(worker)) return;
+      const { port, payload } = event.data ?? {};
+      if (typeof port === 'string') publishPort(port, payload, worker);
+    };
+    worker.addEventListener('message', onMessage);
+    workerMessageListeners.set(worker, onMessage);
     workers.add(worker);
   }
 
   if (ports === undefined) {
     workerPorts.delete(worker);
-    return;
+    return rollback;
   }
 
   const filter = workerPorts.get(worker);
@@ -178,9 +199,14 @@ export function _attachWorker(worker: Worker, ports?: readonly string[]): void {
   } else if (!isAttached) {
     workerPorts.set(worker, new Set(ports));
   }
+
+  return rollback;
 }
 
 export function _detachWorker(worker: Worker): void {
+  const onMessage = workerMessageListeners.get(worker);
+  if (onMessage) worker.removeEventListener('message', onMessage);
+  workerMessageListeners.delete(worker);
   workers.delete(worker);
   workerPorts.delete(worker);
 }

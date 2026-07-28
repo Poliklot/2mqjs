@@ -7,6 +7,7 @@ import { registerWorker, sendToWorker, terminateWorker } from '../../src/workers
 function mockWorker() {
   return {
     addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
     postMessage: vi.fn(),
     terminate: vi.fn(),
   } as unknown as Worker;
@@ -42,6 +43,7 @@ describe('issue-21: ports ↔ workers routing и echo', () => {
       addEventListener: vi.fn((_type, callback) => {
         onMessage = callback as (event: MessageEvent) => void;
       }),
+      removeEventListener: vi.fn(),
       postMessage: vi.fn((message: unknown) => {
         if (message === 'init') onMessage?.({ data: { port, payload } } as MessageEvent);
       }),
@@ -68,6 +70,8 @@ describe('issue-21: ports ↔ workers routing и echo', () => {
     await expect(
       registerWorker({ name, src: () => worker, initMessage: () => undefined }),
     ).rejects.toThrow('could not be cloned');
+
+    expect(worker.removeEventListener).toHaveBeenCalledOnce();
 
     vi.mocked(worker.postMessage).mockClear();
 
@@ -103,6 +107,45 @@ describe('issue-21: ports ↔ workers routing и echo', () => {
     } finally {
       off();
       portsApi._detachWorker(worker);
+    }
+  });
+
+  it('не отключает существующий alias worker после ошибки initMessage', async () => {
+    const worker = mockWorker();
+    const activeName = 'test:issue-21:init-failed-alias:active';
+    const failedName = 'test:issue-21:init-failed-alias:failed';
+    const allowedPort = 'issue-21:init-failed-alias:allowed';
+    const failedPort = 'issue-21:init-failed-alias:failed';
+
+    await registerWorker({
+      name: activeName,
+      src: () => worker,
+      ports: [allowedPort],
+    });
+    vi.mocked(worker.postMessage).mockImplementationOnce(() => {
+      throw new DOMException('could not be cloned', 'DataCloneError');
+    });
+
+    await expect(
+      registerWorker({
+        name: failedName,
+        src: () => worker,
+        initMessage: () => undefined,
+        ports: [failedPort],
+      }),
+    ).rejects.toThrow('could not be cloned');
+
+    try {
+      expect(worker.addEventListener).toHaveBeenCalledOnce();
+      expect(worker.removeEventListener).not.toHaveBeenCalled();
+      vi.mocked(worker.postMessage).mockClear();
+
+      emitPort(allowedPort, 'allowed');
+      emitPort(failedPort, 'must-not-reach-worker');
+
+      expect(portPosts(worker)).toEqual([{ port: allowedPort, payload: 'allowed' }]);
+    } finally {
+      terminateWorker(activeName);
     }
   });
 

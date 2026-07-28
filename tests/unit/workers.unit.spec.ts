@@ -7,6 +7,7 @@ describe('очистка worker', () => {
   it('не пересылает события портов завершённому worker', async () => {
     const worker = {
       addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
       postMessage: vi.fn(),
       terminate: vi.fn(),
     } as unknown as Worker;
@@ -26,6 +27,7 @@ describe('очистка worker', () => {
   it('удаляет все registry aliases завершённого worker', async () => {
     const worker = {
       addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
       postMessage: vi.fn(),
       terminate: vi.fn(),
     } as unknown as Worker;
@@ -44,6 +46,7 @@ describe('очистка worker', () => {
   it('вызывает фабрику worker только один раз', async () => {
     const worker = {
       addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
       postMessage: vi.fn(),
       terminate: vi.fn(),
     } as unknown as Worker;

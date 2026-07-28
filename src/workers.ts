@@ -34,11 +34,15 @@ export async function registerWorker(opts: WorkerOptions): Promise<void> {
   const w =
     "default" in workerOrModule ? workerOrModule.default : workerOrModule;
 
-  _attachWorker(w, opts.ports);
+  const rollbackWorkerAttachment = _attachWorker(w, opts.ports);
 
-  if (opts.initMessage !== undefined) w.postMessage(opts.initMessage);
-
-  registry.set(opts.name, w);
+  try {
+    if (opts.initMessage !== undefined) w.postMessage(opts.initMessage);
+    registry.set(opts.name, w);
+  } catch (error) {
+    rollbackWorkerAttachment();
+    throw error;
+  }
 }
 
 /**
