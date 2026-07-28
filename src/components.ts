@@ -5,17 +5,17 @@ export type ComponentModule = {
   /**
    * Отвечает за первичное отображение, не требует данных или воркеров
    */
-  display?: (el: Element) => void | PromiseLike<void>;
+  display?: (el: Element) => void;
 
   /**
    * Основной метод — инициализация бизнес-логики, требует данных/воркеров
    */
-  boot?: (el: Element) => void | PromiseLike<void>;
+  boot?: (el: Element) => void;
 
   /**
    * Если компонент не использует разделение display/boot — можно использовать default
    */
-  default?: (el: Element) => void | PromiseLike<void>;
+  default?: (el: Element) => void;
 };
 
 /**
