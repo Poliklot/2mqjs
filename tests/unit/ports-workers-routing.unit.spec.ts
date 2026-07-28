@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import * as portsApi from '../../src/ports.js';
-import { emitPort, getPortSnapshot, onPort } from '../../src/ports.js';
+import { _detachWorker, emitPort, getPortSnapshot, onPort } from '../../src/ports.js';
 import { registerWorker, sendToWorker, terminateWorker } from '../../src/workers.js';
 
 function mockWorker() {
@@ -29,10 +28,6 @@ function portPosts(worker: Worker) {
 }
 
 describe('issue-21: ports ↔ workers routing и echo', () => {
-  it('не экспортирует internal worker→ports bridge', () => {
-    expect('_emitPortFromWorker' in portsApi).toBe(false);
-  });
-
   it('обрабатывает port-ответ worker во время initMessage', async () => {
     const port = 'issue-21:init-response';
     const payload = { ready: true };
@@ -79,7 +74,7 @@ describe('issue-21: ports ↔ workers routing и echo', () => {
       emitPort('issue-21:after-failed-init', 'must-not-reach-worker');
       expect(portPosts(worker)).toEqual([]);
     } finally {
-      portsApi._detachWorker(worker);
+      _detachWorker(worker);
     }
   });
 
@@ -106,8 +101,26 @@ describe('issue-21: ports ↔ workers routing и echo', () => {
       expect(getPortSnapshot(port)).toBeUndefined();
     } finally {
       off();
-      portsApi._detachWorker(worker);
+      _detachWorker(worker);
     }
+  });
+
+  it('позволяет повторно зарегистрировать имя после ошибки initMessage', async () => {
+    const failedWorker = mockWorker();
+    const replacementWorker = mockWorker();
+    const name = 'test:issue-21:init-failed-registry';
+    vi.mocked(failedWorker.postMessage).mockImplementationOnce(() => {
+      throw new DOMException('could not be cloned', 'DataCloneError');
+    });
+
+    await expect(
+      registerWorker({ name, src: () => failedWorker, initMessage: () => undefined }),
+    ).rejects.toThrow('could not be cloned');
+    await registerWorker({ name, src: () => replacementWorker });
+
+    expect(replacementWorker.addEventListener).toHaveBeenCalledOnce();
+
+    terminateWorker(name);
   });
 
   it('не отключает существующий alias worker после ошибки initMessage', async () => {

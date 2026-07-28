@@ -13,7 +13,8 @@ import { registerWorker } from '2mqjs/workers';
 await registerWorker({
   name: 'productData',
   src: () => import('./workers/productData.worker?worker'),
-  // ports: ['productData:fetch'] — optional filter
+  // Необязательно: Worker будет получать только перечисленные ports.
+  // ports: ['productData:fetch'],
 });
 // В момент готовности: порт-событие `productData:ready`
 ```
@@ -165,7 +166,13 @@ emitPort('catalog:fetch', { query: 'shoes' });
 ```
 
 В этом примере `catalog` будет получать сообщения `catalog:fetch` и `catalog:warm`,
-отправленные через `emitPort`, но не получает остальные ports.
+отправленные через `emitPort`, но не будет получать остальные ports.
+
+Правила фильтра:
+
+- без `ports` Worker получает все сообщения от `emitPort`;
+- с `ports: []` Worker не получает сообщения от `emitPort`;
+- с перечисленными ports Worker получает только их.
 
 Чтобы отправить сообщение непосредственно Worker `catalog`, используйте его имя:
 
@@ -177,12 +184,14 @@ sendToWorker('catalog', {
 ```
 
 Такое сообщение не получают другие Workers и подписчики `onPort` в основном коде
-страницы.
+страницы. Фильтр `ports` не ограничивает отправку через `sendToWorker`.
 
-Если Worker сам отправляет `{ port, payload }`, сообщение не возвращается ему сразу,
-но его получают основной код страницы и другие Workers, которым разрешён этот port.
-Это не защищает от цикла, который могут создать несколько Workers, отвечая друг другу
-одинаковыми сообщениями.
+Если Worker сам отправляет `{ port, payload }`, сообщение получают только подписчики
+`onPort` в основном коде страницы. Последнее значение сохраняется для
+`getPortSnapshot`. Ни этот, ни другие Workers автоматически сообщение не получают.
+
+Для дальнейшей доставки основной код явно вызывает `emitPort` или `sendToWorker`. Поэтому
+Workers не могут автоматически пересылать одно сообщение по кругу.
 
 Подробнее: [кому доставляются сообщения ports](./PORTS.md#worker-routing).
 

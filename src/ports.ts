@@ -22,7 +22,7 @@ interface SharedState {
   listeners: Map<PortName, Set<PortListener<unknown>>>;
   last: Map<PortName, unknown>;
   workers: Set<Worker>;
-  /** Только workers с ограниченным списком ports; отсутствие = all. */
+  /** Только Workers с ограниченным списком ports; без записи Worker получает все. */
   workerPorts: Map<Worker, Set<PortName>>;
   workerMessageListeners: Map<Worker, WorkerMessageListener>;
   debug: { emit: boolean; listen: boolean };
@@ -63,35 +63,30 @@ function acceptsPort(worker: Worker, port: PortName): boolean {
   return !filter || filter.has(port);
 }
 
-function postToWorkers(
-  port: PortName,
-  payload: unknown,
-  except?: Worker,
-): void {
+function postToWorkers(port: PortName, payload: unknown): void {
   let message: { port: PortName; payload: unknown } | undefined;
 
   for (const worker of workers) {
-    if (worker === except) continue;
     if (!acceptsPort(worker, port)) continue;
     if (!message) message = { port, payload };
     worker.postMessage(message);
   }
 }
 
-function publishPort<T>(port: PortName, payload: T, except?: Worker): void {
+function publishMainPort<T>(port: PortName, payload: T): void {
   log('emit', port, payload);
   last.set(port, payload);
   listeners.get(port)?.forEach(cb => (cb as PortListener<T>)(payload));
-  postToWorkers(port, payload, except);
 }
 
 /* ---------- API ---------- */
 
 /**
- * Публикация в main listeners + workers.
+ * Уведомляет подписчиков в основном потоке и подходящих Workers.
  */
 export function emitPort<T = unknown>(port: PortName, payload: T): void {
-  publishPort(port, payload);
+  publishMainPort(port, payload);
+  postToWorkers(port, payload);
 }
 
 export function onPort<T = unknown>(
@@ -159,7 +154,7 @@ export function setPortsDebug(
 /**
  * Привязывает Worker и возвращает функцию, которая восстанавливает предыдущее состояние.
  *
- * @param ports — если задан, worker получает только эти port names (subscription filter).
+ * @param ports Если список не передан, Worker получает все ports; пустой список — ни одного.
  */
 export function _attachWorker(worker: Worker, ports?: readonly string[]): () => void {
   const isAttached = workers.has(worker);
@@ -181,7 +176,7 @@ export function _attachWorker(worker: Worker, ports?: readonly string[]): () => 
     const onMessage: WorkerMessageListener = event => {
       if (!workers.has(worker)) return;
       const { port, payload } = event.data ?? {};
-      if (typeof port === 'string') publishPort(port, payload, worker);
+      if (typeof port === 'string') publishMainPort(port, payload);
     };
     worker.addEventListener('message', onMessage);
     workerMessageListeners.set(worker, onMessage);

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-types */
-import { _attachWorker, _detachWorker } from "./ports.js";
+import { _attachWorker, _detachWorker } from './ports.js';
 
 /**
  * Опции регистрации воркера.
@@ -12,8 +12,8 @@ export interface WorkerOptions {
   /** Начальное сообщение (любой JSON), отправится сразу после подключения. */
   initMessage?: unknown;
   /**
-   * Subscription filter: worker получает с шины только эти ports.
-   * Omit — все ports (broadcast как раньше).
+   * Фильтр обычной рассылки: Worker получает только перечисленные ports.
+   * Если список не передан, Worker получает все ports.
    */
   ports?: readonly string[];
 }
@@ -23,7 +23,7 @@ const registry = new Map<string, Worker>();
 
 /**
  * Регистрирует и запускает воркер.
- * `{ port, payload }` → ports без direct echo origin.
+ * Сообщения `{ port, payload }` от Worker передаются подписчикам в основном потоке.
  */
 export async function registerWorker(opts: WorkerOptions): Promise<void> {
   if (registry.has(opts.name)) return;
@@ -31,8 +31,7 @@ export async function registerWorker(opts: WorkerOptions): Promise<void> {
   // Review #27, замечание 3: сохраняем результат, чтобы не вызвать фабрику повторно,
   // когда она возвращает Worker напрямую, без поля default.
   const workerOrModule = await opts.src();
-  const w =
-    "default" in workerOrModule ? workerOrModule.default : workerOrModule;
+  const w = 'default' in workerOrModule ? workerOrModule.default : workerOrModule;
 
   const rollbackWorkerAttachment = _attachWorker(w, opts.ports);
 
@@ -76,23 +75,22 @@ export type Msg = { port: string; payload?: unknown };
  * postPort  — типобезопасный helper для ответов наружу.
  */
 export function createWorker<IN extends Msg, OUT extends Msg>(
-  handlers: Record<IN["port"], (p: IN["payload"]) => void | Promise<void>>,
+  handlers: Record<IN['port'], (p: IN['payload']) => void | Promise<void>>,
 ) {
-  const handlerMap = new Map<
-    string,
-    (payload: IN["payload"]) => void | Promise<void>
-  >(Object.entries(handlers));
+  const handlerMap = new Map<string, (payload: IN['payload']) => void | Promise<void>>(
+  Object.entries(handlers)
+);
 
   self.onmessage = (e: MessageEvent<IN>) => {
     const { port, payload } = e.data;
     if (!handlerMap.has(port)) return;
     const fn = handlerMap.get(port);
-    if (typeof fn === "function") void fn(payload);
+    if (typeof fn === 'function') void fn(payload);
   };
 
-  const postPort = <K extends OUT["port"]>(
+  const postPort = <K extends OUT['port']>(
     port: K,
-    payload: Extract<OUT, { port: K }>["payload"],
+    payload: Extract<OUT, { port: K }>['payload'],
   ) => self.postMessage({ port, payload });
 
   return { postPort };
