@@ -58,6 +58,54 @@ describe('issue-21: ports ↔ workers routing и echo', () => {
     terminateWorker(name);
   });
 
+  it('не оставляет worker получателем broadcast после ошибки initMessage', async () => {
+    const worker = mockWorker();
+    const name = 'test:issue-21:init-failed-broadcast';
+    vi.mocked(worker.postMessage).mockImplementationOnce(() => {
+      throw new DOMException('could not be cloned', 'DataCloneError');
+    });
+
+    await expect(
+      registerWorker({ name, src: () => worker, initMessage: () => undefined }),
+    ).rejects.toThrow('could not be cloned');
+
+    vi.mocked(worker.postMessage).mockClear();
+
+    try {
+      emitPort('issue-21:after-failed-init', 'must-not-reach-worker');
+      expect(portPosts(worker)).toEqual([]);
+    } finally {
+      portsApi._detachWorker(worker);
+    }
+  });
+
+  it('не принимает сообщения от worker после ошибки initMessage', async () => {
+    const worker = mockWorker();
+    const name = 'test:issue-21:init-failed-publish';
+    const port = 'issue-21:failed-worker-message';
+    const listener = vi.fn();
+    const off = onPort(port, listener, false);
+    vi.mocked(worker.postMessage).mockImplementationOnce(() => {
+      throw new DOMException('could not be cloned', 'DataCloneError');
+    });
+
+    await expect(
+      registerWorker({ name, src: () => worker, initMessage: () => undefined }),
+    ).rejects.toThrow('could not be cloned');
+
+    try {
+      workerMessageHandler(worker)({
+        data: { port, payload: 'must-not-reach-main' },
+      } as MessageEvent);
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(getPortSnapshot(port)).toBeUndefined();
+    } finally {
+      off();
+      portsApi._detachWorker(worker);
+    }
+  });
+
   it('1 worker: сообщение от worker не возвращается origin (echo)', async () => {
     const worker = mockWorker();
     const name = 'test:issue-21:echo-one';
