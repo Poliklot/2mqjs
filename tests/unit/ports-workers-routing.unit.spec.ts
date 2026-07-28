@@ -185,9 +185,13 @@ describe('issue-21: ports ↔ workers routing и echo', () => {
     terminateWorker(name);
   });
 
-  it('2 workers: peer получает, origin — нет', async () => {
+  it('2 workers: сообщение от worker остаётся в main bus и не пересылается peer', async () => {
     const origin = mockWorker();
     const peer = mockWorker();
+    const port = 'issue-21:from-origin';
+    const payload = 'ping';
+    const listener = vi.fn();
+    const off = onPort(port, listener, false);
 
     await registerWorker({ name: 'test:issue-21:echo-origin', src: () => origin });
     await registerWorker({ name: 'test:issue-21:echo-peer', src: () => peer });
@@ -196,16 +200,19 @@ describe('issue-21: ports ↔ workers routing и echo', () => {
     vi.mocked(peer.postMessage).mockClear();
 
     workerMessageHandler(origin)({
-      data: { port: 'issue-21:from-origin', payload: 'ping' },
+      data: { port, payload },
     } as MessageEvent);
 
-    expect(portPosts(origin)).toEqual([]);
-    expect(portPosts(peer)).toEqual([
-      { port: 'issue-21:from-origin', payload: 'ping' },
-    ]);
-
-    terminateWorker('test:issue-21:echo-origin');
-    terminateWorker('test:issue-21:echo-peer');
+    try {
+      expect(listener).toHaveBeenCalledExactlyOnceWith(payload);
+      expect(getPortSnapshot(port)).toBe(payload);
+      expect(portPosts(origin)).toEqual([]);
+      expect(portPosts(peer)).toEqual([]);
+    } finally {
+      off();
+      terminateWorker('test:issue-21:echo-origin');
+      terminateWorker('test:issue-21:echo-peer');
+    }
   });
 
   it('main emitPort: broadcast на всех attached workers (совместимость)', async () => {
