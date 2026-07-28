@@ -119,22 +119,32 @@ interface NormalizedPersist {
   keys?: string[];
 }
 
+/** Сериализируемые мутации → воркер. */
+type WorkerMutation<S> =
+  | { type: 'op:set'; path: string; value: unknown }
+  | { type: 'op:merge'; patch: Partial<S> }
+  | { type: 'op:add'; path: string; item: unknown }
+  | { type: 'op:remove'; path: string; item: unknown }
+  | { type: 'op:del'; path: string };
+
+type WorkerOperation<S> = WorkerMutation<S> & { operationId: number };
+
 /** Сообщения → воркер. */
 type WorkerIn<S> =
   | { type: 'init'; name: string; initial: S; persist: NormalizedPersist | false }
   | { type: 'get' }
-  | { type: 'op:set'; path: string; value: unknown }
-  | { type: 'op:merge'; patch: Partial<S> }
-  | { type: 'op:add'; path: string; item: unknown }
-  | { type: 'op:remove'; path: string; item: unknown | ((x: any) => boolean) }
-  | { type: 'op:del'; path: string };
+  | WorkerOperation<S>;
 
 /** Сообщения ← от воркера. */
 type WorkerOut<S> =
   | { type: 'ready' }
-  | { type: 'state'; state: S }
+  | { type: 'state'; state: S; operationId?: number }
   | { type: 'persist:ls:set'; storageKey: string; json: string }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string; operationId?: number };
+
+type QueuedMutation<S> =
+  | { kind: 'op'; op: WorkerMutation<S> }
+  | { kind: 'fn'; createMessage: (state: S) => WorkerMutation<S> };
 
 /** Глобальный реестр стора (singletons) на случай мульти-бандлов. */
 const GLOBAL_KEY = Symbol.for('2mqjs.store.registry');
@@ -167,6 +177,76 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
   dlog('wire', 'spawn worker', opts.name);
 
   const ready = defer<void>();
+  let mutationQueue: QueuedMutation<S>[] = [];
+  let mutationQueueHead = 0;
+  let canonicalState!: S;
+  let hasCanonicalState = false;
+  let isReady = false;
+  let nextOperationId = 1;
+  const pendingOperationIds = new Set<number>();
+
+  function compactMutationQueue(): void {
+    if (mutationQueueHead === 0) return;
+    mutationQueue = mutationQueue.slice(mutationQueueHead);
+    mutationQueueHead = 0;
+  }
+
+  function postMutation(mutation: WorkerMutation<S>): void {
+    const operationId = nextOperationId++;
+    const message = mutation as WorkerOperation<S>;
+    message.operationId = operationId;
+    pendingOperationIds.add(operationId);
+
+    try {
+      worker.postMessage(message);
+    } catch (error) {
+      pendingOperationIds.delete(operationId);
+      console.error('[store] mutation error:', error);
+    }
+  }
+
+  function processMutationQueue(): void {
+    if (!isReady || !hasCanonicalState) return;
+
+    while (mutationQueueHead < mutationQueue.length) {
+      const pending = mutationQueue[mutationQueueHead];
+
+      if (pending.kind === 'fn' && pendingOperationIds.size > 0) {
+        compactMutationQueue();
+        return;
+      }
+
+      mutationQueueHead += 1;
+      let mutation: WorkerMutation<S>;
+
+      try {
+        mutation =
+          pending.kind === 'fn' ? pending.createMessage(canonicalState) : pending.op;
+      } catch (error) {
+        console.error('[store] mutation error:', error);
+        continue;
+      }
+
+      postMutation(mutation);
+    }
+
+    mutationQueue = [];
+    mutationQueueHead = 0;
+  }
+
+  function enqueueOperation(operation: WorkerMutation<S>): void {
+    if (isReady && hasCanonicalState && mutationQueue.length === 0) {
+      postMutation(operation);
+      return;
+    }
+
+    enqueueMutation({ kind: 'op', op: operation });
+  }
+
+  function enqueueMutation(mutation: QueuedMutation<S>): void {
+    mutationQueue.push(mutation);
+    processMutationQueue();
+  }
 
   // initial из localStorage, если выбран backend=localStorage (IndexedDB сделает воркер сам)
   const initialFromLS =
@@ -185,13 +265,24 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
 
     if (msg.type === 'state') {
       dlog('wire', '← state');
-      emitPort(portNameState(opts.name), msg.state);
+      canonicalState = msg.state;
+      hasCanonicalState = true;
+
+      if (msg.operationId !== undefined) pendingOperationIds.delete(msg.operationId);
+
+      try {
+        emitPort(portNameState(opts.name), msg.state);
+      } finally {
+        processMutationQueue();
+      }
       return;
     }
 
     if (msg.type === 'ready') {
       dlog('wire', '← ready');
+      isReady = true;
       ready.resolve();
+      processMutationQueue();
       return;
     }
 
@@ -205,6 +296,11 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
 
     if (msg.type === 'error') {
       console.error('[store] worker error:', msg.message);
+
+      if (msg.operationId !== undefined) pendingOperationIds.delete(msg.operationId);
+
+      processMutationQueue();
+
       return;
     }
   });
@@ -289,37 +385,59 @@ export function defineGlobalStore<S>(opts: StoreOptions<S>): Store<S> {
     set(path, value) {
       dlog('ops', 'set', path);
       if (typeof value === 'function') {
-        // вычислим next на основе последнего снапшота
-        const snap = getPortSnapshot<S>(portNameState(opts.name));
-        const prev = snap ? getAtPath(snap as any, path) : undefined;
-        const next = (value as (p: unknown) => unknown)(prev);
-        worker.postMessage({ type: 'op:set', path, value: next } as WorkerIn<S>);
+        const updater = value as (prev: unknown) => unknown;
+        enqueueMutation({
+          kind: 'fn',
+          createMessage: (state) => ({
+            type: 'op:set',
+            path,
+            value: updater(getAtPath(state as any, path)),
+          }),
+        });
       } else {
-        worker.postMessage({ type: 'op:set', path, value } as WorkerIn<S>);
+        enqueueOperation({ type: 'op:set', path, value });
       }
     },
     merge(patch) {
       dlog('ops', 'merge', patch);
-      worker.postMessage({ type: 'op:merge', patch } as WorkerIn<S>);
+      enqueueOperation({ type: 'op:merge', patch });
     },
     add(path, item) {
       dlog('ops', 'add', {path, item});
-      worker.postMessage({ type: 'op:add', path, item } as WorkerIn<S>);
+      enqueueOperation({ type: 'op:add', path, item });
     },
     remove(path, itemOrPredicate) {
       dlog('ops', 'remove', {path, itemOrPredicate});
-      worker.postMessage({ type: 'op:remove', path, item: itemOrPredicate } as WorkerIn<S>);
+      if (typeof itemOrPredicate === 'function') {
+        const predicate = itemOrPredicate as (item: any) => boolean;
+        enqueueMutation({
+          kind: 'fn',
+          createMessage: (state) => {
+            const items = getAtPath(state as any, path);
+            const next = Array.isArray(items)
+              ? items.filter((item: any) => !predicate(item))
+              : items;
+            return { type: 'op:set', path, value: next };
+          },
+        });
+      } else {
+        enqueueOperation({ type: 'op:remove', path, item: itemOrPredicate });
+      }
     },
     del(path) {
       dlog('ops', 'del', path);
-      worker.postMessage({ type: 'op:del', path } as WorkerIn<S>);
+      enqueueOperation({ type: 'op:del', path });
     },
     update(path, fn) {
       dlog('ops', 'update', path);
-      const snap = getPortSnapshot<S>(portNameState(opts.name));
-      const prev = snap ? getAtPath(snap as any, path) : undefined;
-      const next = fn(prev);
-      worker.postMessage({ type: 'op:set', path, value: next } as WorkerIn<S>);
+      enqueueMutation({
+        kind: 'fn',
+        createMessage: (state) => ({
+          type: 'op:set',
+          path,
+          value: fn(getAtPath(state as any, path)),
+        }),
+      });
     },
   };
 
