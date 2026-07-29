@@ -30,17 +30,21 @@
 ## 📚 Типы
 
 ```ts
-export type ComponentModule =
-  | ((el: Element) => void)
-  | {
-      display?: (el: Element) => void;
-      boot?: (el: Element) => void;
-      default?: (el: Element) => void;
-    };
+export type ComponentCallback = (el: Element) => void | PromiseLike<void>;
+
+export type ComponentModule = {
+  display?: ComponentCallback;
+  boot?: ComponentCallback;
+  default?: ComponentCallback;
+};
 
 export type ComponentLoader = () => Promise<ComponentModule> | ComponentModule;
 export type InitStrategy = 'immediate' | 'visible' | 'interaction';
 ```
+
+`display`, `boot` и `default` могут быть синхронными или асинхронными. Loader
+дожидается любого thenable и только после успешного завершения переводит lifecycle
+на следующий этап.
 
 ---
 

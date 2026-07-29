@@ -1,21 +1,23 @@
 /**
  * Тип экспортируемого модуля компонента
  */
+export type ComponentCallback = (el: Element) => void | PromiseLike<void>;
+
 export type ComponentModule = {
   /**
    * Отвечает за первичное отображение, не требует данных или воркеров
    */
-  display?: (el: Element) => void;
+  display?: ComponentCallback;
 
   /**
    * Основной метод — инициализация бизнес-логики, требует данных/воркеров
    */
-  boot?: (el: Element) => void;
+  boot?: ComponentCallback;
 
   /**
    * Если компонент не использует разделение display/boot — можно использовать default
    */
-  default?: (el: Element) => void;
+  default?: ComponentCallback;
 };
 
 /**
@@ -69,6 +71,8 @@ interface BootLifecycle {
   displayReady?: boolean;
   /** strategy/bootComponent пришёл раньше display */
   bootRequested?: boolean;
+  /** Снимает observer/listeners текущей стратегии. */
+  clearTrigger?: () => void;
 }
 
 /* ---------- Singleton-хранилище ---------- */
@@ -213,14 +217,17 @@ export function runComponentLoader($root: HTMLElement = document.body): void {
   const observer = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       if (!entry.isIntersecting) return;
-      observer.unobserve(entry.target);
 
       const lifecycle = observedLifecycles.get(entry.target);
-      if (lifecycle) tryBoot(entry.target, lifecycle);
+      if (lifecycle) {
+        clearTrigger(lifecycle);
+        tryBoot(entry.target, lifecycle);
+      }
     });
   });
   const observe = (el: HTMLElement, lifecycle: BootLifecycle): void => {
     observedLifecycles.set(el, lifecycle);
+    lifecycle.clearTrigger = () => observer.unobserve(el);
     observer.observe(el);
   };
 
@@ -246,6 +253,11 @@ function createLifecycle(el: Element): BootLifecycle {
   const lifecycle: BootLifecycle = { state: 'pending' };
   bootLifecycles.set(el, lifecycle);
   return lifecycle;
+}
+
+function clearTrigger(lifecycle: BootLifecycle): void {
+  lifecycle.clearTrigger?.();
+  lifecycle.clearTrigger = undefined;
 }
 
 function getLifecycle(el: Element): BootLifecycle | undefined {
@@ -289,10 +301,13 @@ function attachInteractionListeners(
     events && events.length ? events : ['click', 'focus', 'mouseenter'];
 
   const handler = () => {
-    triggers.forEach(evt => el.removeEventListener(evt, handler));
+    clearTrigger(lifecycle);
     tryBoot(el, lifecycle);
   };
 
+  lifecycle.clearTrigger = () => {
+    triggers.forEach(evt => el.removeEventListener(evt, handler));
+  };
   triggers.forEach(evt => el.addEventListener(evt, handler, { once: true }));
 }
 
@@ -308,6 +323,7 @@ export function bootComponent(el: Element): void {
   if (!lifecycle || lifecycle.state === 'failed') lifecycle = createLifecycle(el);
 
   if (def.hasDisplay && !lifecycle.displayReady) prepareDisplay(el, def, lifecycle);
+  clearTrigger(lifecycle);
   tryBoot(el, lifecycle);
 }
 
@@ -369,6 +385,7 @@ function completeLifecycleStep(
 function fail(el: Element, lifecycle: BootLifecycle, error: unknown): void {
   if (bootLifecycles.get(el) !== lifecycle || lifecycle.state === 'failed') return;
   lifecycle.state = 'failed';
+  clearTrigger(lifecycle);
   reportError(error);
 }
 

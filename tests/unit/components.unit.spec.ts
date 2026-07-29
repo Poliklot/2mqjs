@@ -902,6 +902,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
 
     runComponentLoader(root);
     await flushMicrotasks();
+    expect(observerInstances[0].unobserve).toHaveBeenCalledWith(el);
     runComponentLoader(root);
 
     observerInstances[0].callback(
@@ -949,6 +950,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     runComponentLoader(root);
     const staleClick = listeners.get('click')!;
     await flushMicrotasks();
+    expect(el.removeEventListener).toHaveBeenCalledTimes(3);
     runComponentLoader(root);
     await flushMicrotasks();
 
@@ -958,6 +960,42 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     listeners.get('click')!(new Event('click'));
     await flushMicrotasks();
     expect(boot).toHaveBeenCalledWith(el);
+  });
+
+  it('bootComponent снимает observer отложенной visible-стратегии', () => {
+    const name = uniqueName('i22:forced-visible-cleanup');
+    const { root, el } = createRootWithComponent(name);
+    const boot = vi.fn();
+
+    registerComponent({
+      name,
+      when: 'visible',
+      load: () => ({ boot }),
+    });
+
+    runComponentLoader(root);
+    bootComponent(el);
+
+    expect(observerInstances[0].unobserve).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledOnce();
+  });
+
+  it('bootComponent снимает listeners отложенной interaction-стратегии', () => {
+    const name = uniqueName('i22:forced-interaction-cleanup');
+    const { root, el } = createRootWithComponent(name);
+    const boot = vi.fn();
+
+    registerComponent({
+      name,
+      when: 'interaction',
+      load: () => ({ boot }),
+    });
+
+    runComponentLoader(root);
+    bootComponent(el);
+
+    expect(el.removeEventListener).toHaveBeenCalledTimes(3);
+    expect(boot).toHaveBeenCalledOnce();
   });
 
   it('hasDisplay: после boot fail retry заново load + display + boot', () => {
