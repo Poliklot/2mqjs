@@ -1,21 +1,23 @@
 /**
  * Тип экспортируемого модуля компонента
  */
+export type ComponentCallback = (el: Element) => void | PromiseLike<void>;
+
 export type ComponentModule = {
   /**
    * Отвечает за первичное отображение, не требует данных или воркеров
    */
-  display?: (el: Element) => void;
+  display?: ComponentCallback;
 
   /**
    * Основной метод — инициализация бизнес-логики, требует данных/воркеров
    */
-  boot?: (el: Element) => void;
+  boot?: ComponentCallback;
 
   /**
    * Если компонент не использует разделение display/boot — можно использовать default
    */
-  default?: (el: Element) => void;
+  default?: ComponentCallback;
 };
 
 /**
@@ -58,23 +60,51 @@ export interface ComponentDefinition {
   events?: InteractionEvent[];
 }
 
+/** pending → booting → booted | failed; retry = новый lifecycle */
+type BootState = 'pending' | 'booting' | 'booted' | 'failed';
+
+interface BootLifecycle {
+  state: BootState;
+  /** Один load на attempt (display + boot). */
+  module?: ComponentModule | Promise<ComponentModule>;
+  /** hasDisplay: display уже выполнен */
+  displayReady?: boolean;
+  /** strategy/bootComponent пришёл раньше display */
+  bootRequested?: boolean;
+  /** Снимает observer/listeners текущей стратегии. */
+  clearTrigger?: () => void;
+}
+
 /* ---------- Singleton-хранилище ---------- */
 interface SharedState {
   registry: Map<string, ComponentDefinition>;
-  initialized: WeakSet<Element>;
+  bootLifecycles: WeakMap<Element, BootLifecycle>;
   debug: { register: boolean; init: boolean };
+  onError: ((error: unknown) => void) | null;
+}
+
+interface LegacySharedState {
+  initialized?: WeakSet<Element>;
 }
 
 const GLOBAL_KEY = Symbol.for('components.registry');
-const shared: SharedState =
+const shared =
   (globalThis as any)[GLOBAL_KEY] ??
   ((globalThis as any)[GLOBAL_KEY] = {
     registry: new Map(),
-    initialized: new WeakSet(),
+    bootLifecycles: new WeakMap(),
     debug: { register: false, init: false },
-  });
+    onError: null,
+    initialized: new WeakSet(),
+  }) as SharedState & LegacySharedState;
 
-const { registry, initialized, debug } = shared;
+shared.registry ??= new Map();
+shared.bootLifecycles ??= new WeakMap();
+shared.debug ??= { register: false, init: false };
+shared.onError ??= null;
+shared.initialized ??= new WeakSet();
+
+const { registry, bootLifecycles, debug } = shared;
 
 /* ---------- Вспомогалка логирования ---------- */
 /**
@@ -92,6 +122,61 @@ function log(kind: 'register' | 'init', name: string, data?: unknown): void {
     'color:#D52B1E',
     data ?? '',
   );
+}
+
+function reportError(error: unknown): void {
+  if (shared.onError) {
+    shared.onError(error);
+    return;
+  }
+  console.error(error);
+}
+
+/** Cross-realm thenable → Promise; sync value → undefined (без microtask). */
+function asPromise<T>(value: T | PromiseLike<T>): Promise<T> | undefined {
+  return value != null &&
+    (typeof value === 'object' || typeof value === 'function') &&
+    typeof (value as PromiseLike<T>).then === 'function'
+    ? Promise.resolve(value)
+    : undefined;
+}
+
+/** load + thenable/sync settle; identity-guard; sync errors rethrow. */
+function runWithModule(
+  el: Element,
+  def: ComponentDefinition,
+  lifecycle: BootLifecycle,
+  use: (mod: ComponentModule) => void | PromiseLike<void>,
+): void {
+  let result: ComponentModule | Promise<ComponentModule>;
+  try {
+    if (lifecycle.module === undefined) {
+      const loaded = def.load();
+      lifecycle.module = asPromise(loaded) ?? loaded;
+    }
+    result = lifecycle.module;
+  } catch (error) {
+    fail(el, lifecycle, error);
+    throw error;
+  }
+
+  const ok = (mod: ComponentModule): void => {
+    if (bootLifecycles.get(el) !== lifecycle) return;
+    const promise = asPromise(use(mod));
+    if (promise) promise.catch(error => fail(el, lifecycle, error));
+  };
+  const promise = asPromise(result);
+  if (promise) {
+    promise.then(ok).catch(error => fail(el, lifecycle, error));
+    return;
+  }
+
+  try {
+    ok(result as ComponentModule);
+  } catch (error) {
+    fail(el, lifecycle, error);
+    throw error;
+  }
 }
 
 /* ---------- API ---------- */
@@ -124,44 +209,82 @@ export function registerComponent({
 
 /**
  * Запускает поиск по DOM и инициализирует компоненты по атрибуту data-component. Поддерживает ленивую инициализацию (intersection, interaction).
+ * Retry: `failed` → новый lifecycle на scan / `bootComponent` (полный pipeline, без auto-retry).
  * @param $root Элемент, внутри которого нужно инициализировать компоненты (по умолчанию document.body)
  */
 export function runComponentLoader($root: HTMLElement = document.body): void {
+  const observedLifecycles = new WeakMap<Element, BootLifecycle>();
   const observer = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       if (!entry.isIntersecting) return;
-      observer.unobserve(entry.target);
-      tryBoot(entry.target);
+
+      const lifecycle = observedLifecycles.get(entry.target);
+      if (lifecycle) {
+        clearTrigger(lifecycle);
+        tryBoot(entry.target, lifecycle);
+      }
     });
   });
+  const observe = (el: HTMLElement, lifecycle: BootLifecycle): void => {
+    observedLifecycles.set(el, lifecycle);
+    lifecycle.clearTrigger = () => observer.unobserve(el);
+    observer.observe(el);
+  };
 
   $root.querySelectorAll<HTMLElement>('[data-component]').forEach(el => {
-    const name = el.getAttribute('data-component');
-    const def = name ? registry.get(name) : undefined;
-    if (!def || initialized.has(el)) return;
+    const def = getComponentDefinition(el);
+    if (!def) return;
 
-    const { load, when, hasDisplay, events } = def;
+    let lifecycle = getLifecycle(el);
+    if (lifecycle?.state === 'failed') lifecycle = createLifecycle(el);
+    else if (lifecycle) return;
+    else lifecycle = createLifecycle(el);
 
-    log('init', name!, { strategy: when });
-
-    if (hasDisplay) {
-      const maybePromise = load();
-
-      if (maybePromise instanceof Promise) {
-        maybePromise.then(mod => mod.display?.(el)).catch(console.error);
-      } else {
-        maybePromise.display?.(el);
-      }
-    }
-
-    if (when === 'immediate') {
-      tryBoot(el);
-    } else if (when === 'visible') {
-      observer.observe(el);
-    } else if (when === 'interaction') {
-      attachInteractionListeners(el, events);
-    }
+    scheduleComponent(el, def, lifecycle, observe);
   });
+}
+
+function getComponentDefinition(el: Element): ComponentDefinition | undefined {
+  const name = el.getAttribute('data-component');
+  return name ? registry.get(name) : undefined;
+}
+
+function createLifecycle(el: Element): BootLifecycle {
+  const lifecycle: BootLifecycle = { state: 'pending' };
+  bootLifecycles.set(el, lifecycle);
+  return lifecycle;
+}
+
+function clearTrigger(lifecycle: BootLifecycle): void {
+  lifecycle.clearTrigger?.();
+  lifecycle.clearTrigger = undefined;
+}
+
+function getLifecycle(el: Element): BootLifecycle | undefined {
+  const lifecycle = bootLifecycles.get(el);
+  if (lifecycle || !shared.initialized?.has(el)) return lifecycle;
+
+  // Legacy WeakSet: success/failure неразличимы — не переинициализируем DOM.
+  const migrated: BootLifecycle = { state: 'booted', displayReady: true };
+  bootLifecycles.set(el, migrated);
+  return migrated;
+}
+
+function scheduleComponent(
+  el: HTMLElement,
+  def: ComponentDefinition,
+  lifecycle: BootLifecycle,
+  observe: (el: HTMLElement, lifecycle: BootLifecycle) => void,
+): void {
+  log('init', el.getAttribute('data-component')!, { strategy: def.when });
+
+  if (def.hasDisplay && !lifecycle.displayReady) prepareDisplay(el, def, lifecycle);
+
+  if (def.when === 'immediate') tryBoot(el, lifecycle);
+  else if (def.when === 'visible') observe(el, lifecycle);
+  else if (def.when === 'interaction') {
+    attachInteractionListeners(el, def.events, lifecycle);
+  }
 }
 
 /**
@@ -171,16 +294,20 @@ export function runComponentLoader($root: HTMLElement = document.body): void {
  */
 function attachInteractionListeners(
   el: HTMLElement,
-  events: InteractionEvent[] | undefined
+  events: InteractionEvent[] | undefined,
+  lifecycle: BootLifecycle,
 ): void {
   const triggers: InteractionEvent[] =
     events && events.length ? events : ['click', 'focus', 'mouseenter'];
 
   const handler = () => {
-    triggers.forEach(evt => el.removeEventListener(evt, handler));
-    tryBoot(el);
+    clearTrigger(lifecycle);
+    tryBoot(el, lifecycle);
   };
 
+  lifecycle.clearTrigger = () => {
+    triggers.forEach(evt => el.removeEventListener(evt, handler));
+  };
   triggers.forEach(evt => el.addEventListener(evt, handler, { once: true }));
 }
 
@@ -189,40 +316,86 @@ function attachInteractionListeners(
  * @param el DOM-элемент с атрибутом data-component
  */
 export function bootComponent(el: Element): void {
-  tryBoot(el);
+  const def = getComponentDefinition(el);
+  if (!def) return;
+
+  let lifecycle = getLifecycle(el);
+  if (!lifecycle || lifecycle.state === 'failed') lifecycle = createLifecycle(el);
+
+  if (def.hasDisplay && !lifecycle.displayReady) prepareDisplay(el, def, lifecycle);
+  clearTrigger(lifecycle);
+  tryBoot(el, lifecycle);
+}
+
+/** boot / default; ждёт display при hasDisplay. */
+function tryBoot(el: Element, lifecycle: BootLifecycle): void {
+  if (bootLifecycles.get(el) !== lifecycle || lifecycle.state !== 'pending') return;
+
+  lifecycle.bootRequested = true;
+  const def = getComponentDefinition(el);
+  if (!def || (def.hasDisplay && !lifecycle.displayReady)) return;
+
+  lifecycle.state = 'booting';
+  lifecycle.bootRequested = false;
+  log('init', el.getAttribute('data-component')!, 'boot');
+
+  runWithModule(el, def, lifecycle, mod => {
+    if (lifecycle.state === 'failed') return;
+
+    let result: void | PromiseLike<void> = undefined;
+    if (mod.boot) result = mod.boot(el);
+    else if (!def.hasDisplay && typeof mod.default === 'function') result = mod.default(el);
+
+    return completeLifecycleStep(el, lifecycle, result, () => {
+      lifecycle.state = 'booted';
+      shared.initialized?.add(el);
+    });
+  });
+}
+
+function prepareDisplay(
+  el: Element,
+  def: ComponentDefinition,
+  lifecycle: BootLifecycle,
+): void {
+  if (lifecycle.module !== undefined) return;
+
+  runWithModule(el, def, lifecycle, mod => {
+    return completeLifecycleStep(el, lifecycle, mod.display?.(el), () => {
+      lifecycle.displayReady = true;
+      if (lifecycle.bootRequested) tryBoot(el, lifecycle);
+    });
+  });
+}
+
+function completeLifecycleStep(
+  el: Element,
+  lifecycle: BootLifecycle,
+  result: void | PromiseLike<void>,
+  complete: () => void,
+): void | Promise<void> {
+  const guardedComplete = (): void => {
+    if (bootLifecycles.get(el) === lifecycle && lifecycle.state !== 'failed') complete();
+  };
+  const promise = asPromise(result);
+  if (promise) return promise.then(guardedComplete);
+  guardedComplete();
+}
+
+function fail(el: Element, lifecycle: BootLifecycle, error: unknown): void {
+  if (bootLifecycles.get(el) !== lifecycle || lifecycle.state === 'failed') return;
+  lifecycle.state = 'failed';
+  clearTrigger(lifecycle);
+  reportError(error);
 }
 
 /**
- * Внутренняя функция: вызывает boot или default (если hasDisplay не указан)
- * @param el DOM-элемент с атрибутом data-component
+ * Опциональный hook ошибок load/display/boot. Без handler — `console.error`. `null` сбрасывает.
  */
-function tryBoot(el: Element): void {
-  if (initialized.has(el)) return;
-  initialized.add(el);
-
-  const name = el.getAttribute('data-component');
-  const def = name ? registry.get(name) : undefined;
-  if (!def) return;
-
-  const { load, hasDisplay } = def;
-
-  log('init', name!, 'boot');
-
-  const handle = (mod: ComponentModule) => {
-    if (mod.boot) {
-      mod.boot(el);
-    } else if (!hasDisplay && typeof mod.default === 'function') {
-      mod.default(el);
-    }
-  };
-
-  const result = load();
-
-  if (result instanceof Promise) {
-    result.then(handle).catch(console.error);
-  } else {
-    handle(result);
-  }
+export function setComponentsErrorHandler(
+  handler: ((error: unknown) => void) | null,
+): void {
+  shared.onError = handler;
 }
 
 /**
