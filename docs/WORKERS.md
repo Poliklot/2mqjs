@@ -13,6 +13,8 @@ import { registerWorker } from '2mqjs/workers';
 await registerWorker({
   name: 'productData',
   src: () => import('./workers/productData.worker?worker'),
+  // Необязательно: Worker будет получать только перечисленные ports.
+  // ports: ['productData:fetch'],
 });
 // В момент готовности: порт-событие `productData:ready`
 ```
@@ -145,6 +147,53 @@ setWorkersDebug(true);
 * Имена воркеров должны быть **уникальными**: `catalog`, `auth`, `analytics`.
 * Для связанных событий используйте префикс имени: `catalog:*`.
 * Разбивайте по доменам: один воркер — один bounded context.
+
+## Какие сообщения получает Worker
+
+При регистрации можно перечислить ports, которые нужны Worker:
+
+```ts
+import { emitPort } from '2mqjs/ports';
+import { registerWorker, sendToWorker } from '2mqjs/workers';
+
+await registerWorker({
+  name: 'catalog',
+  src: () => import('./catalog.worker?worker'),
+  ports: ['catalog:fetch', 'catalog:warm'],
+});
+
+emitPort('catalog:fetch', { query: 'shoes' });
+```
+
+В этом примере `catalog` будет получать сообщения `catalog:fetch` и `catalog:warm`,
+отправленные через `emitPort`, но не будет получать остальные ports.
+
+Правила фильтра:
+
+- без `ports` Worker получает все сообщения от `emitPort`;
+- с `ports: []` Worker не получает сообщения от `emitPort`;
+- с перечисленными ports Worker получает только их.
+
+Чтобы отправить сообщение непосредственно Worker `catalog`, используйте его имя:
+
+```ts
+sendToWorker('catalog', {
+  port: 'catalog:fetch',
+  payload: { query: 'shoes' },
+});
+```
+
+Такое сообщение не получают другие Workers и подписчики `onPort` в основном коде
+страницы. Фильтр `ports` не ограничивает отправку через `sendToWorker`.
+
+Если Worker сам отправляет `{ port, payload }`, сообщение получают только подписчики
+`onPort` в основном коде страницы. Последнее значение сохраняется для
+`getPortSnapshot`. Ни этот, ни другие Workers автоматически сообщение не получают.
+
+Для дальнейшей доставки основной код явно вызывает `emitPort` или `sendToWorker`. Поэтому
+Workers не могут автоматически пересылать одно сообщение по кругу.
+
+Подробнее: [кому доставляются сообщения ports](./PORTS.md#worker-routing).
 
 ---
 

@@ -96,6 +96,63 @@ registerTask({
 
 ---
 
+## Worker routing
+
+Port — это имя сообщения, например `catalog:fetch`. Сообщение можно отправить всем
+заинтересованным Workers или только одному Worker.
+
+При регистрации Worker укажите, какие ports он должен получать:
+
+```ts
+import { emitPort } from '2mqjs/ports';
+import { registerWorker } from '2mqjs/workers';
+
+await registerWorker({
+  name: 'catalog',
+  src: () => import('./catalog.worker?worker'),
+  ports: ['catalog:fetch', 'catalog:warm'],
+});
+
+emitPort('catalog:fetch', { query: 'shoes' });
+```
+
+Теперь Worker `catalog` будет получать только сообщения с именами `catalog:fetch` и
+`catalog:warm`, отправленные через `emitPort`.
+
+Правила настройки:
+
+- без `ports` Worker получает все сообщения от `emitPort`;
+- с `ports: []` Worker не получает сообщения от `emitPort`;
+- с `ports: ['a', 'b']` Worker получает только ports `a` и `b`.
+
+Чтобы отправить сообщение только одному Worker, укажите его имя:
+
+```ts
+import { sendToWorker } from '2mqjs/workers';
+
+sendToWorker('catalog', {
+  port: 'catalog:fetch',
+  payload: { query: 'shoes' },
+});
+```
+
+Это сообщение получит только Worker `catalog`. Подписчики `onPort` в основном коде
+страницы (main thread) и другие Workers его не получат. Настройка `ports` не ограничивает
+такую адресную отправку.
+
+Когда Worker отправляет `{ port, payload }`, сообщение остаётся в основном коде страницы:
+его получают подписчики `onPort`, а последнее значение можно прочитать через
+`getPortSnapshot`. Ни отправитель, ни другие Workers автоматически его не получают.
+
+Если сообщение нужно передать дальше, основной код явно вызывает `emitPort` для рассылки
+или `sendToWorker` для одного Worker. Поэтому Workers не могут автоматически пересылать
+одно сообщение по кругу.
+
+Выбирайте понятные имена сообщений с префиксом, например `catalog:fetch` или
+`analytics:track`. По префиксу видно, к какой части приложения относится сообщение.
+Если сообщение нужно только одному Worker, используйте `sendToWorker`; если Worker
+нужны только отдельные сообщения, перечислите их в `ports`.
+
 ## Best practices
 
 * **Группируйте события по доменам** — `cart:*`, `user:*`, `products:*`.

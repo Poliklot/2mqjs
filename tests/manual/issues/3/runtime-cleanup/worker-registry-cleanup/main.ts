@@ -21,6 +21,7 @@ $run.addEventListener('click', async () => {
 
   const worker = {
     addEventListener: () => undefined,
+    removeEventListener: () => undefined,
     postMessage: (data: unknown) => {
       if (isTerminated) {
         postMessagesAfterTerminate += 1;

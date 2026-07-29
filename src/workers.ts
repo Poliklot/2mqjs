@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-types */
-import { _attachWorker, _detachWorker, emitPort } from './ports.js';
+import { _attachWorker, _detachWorker } from './ports.js';
 
 /**
  * Опции регистрации воркера.
@@ -11,6 +11,11 @@ export interface WorkerOptions {
   src: () => Promise<{ default: Worker }> | Worker;
   /** Начальное сообщение (любой JSON), отправится сразу после подключения. */
   initMessage?: unknown;
+  /**
+   * Фильтр обычной рассылки: Worker получает только перечисленные ports.
+   * Если список не передан, Worker получает все ports.
+   */
+  ports?: readonly string[];
 }
 
 /** Map<name, Worker> */
@@ -18,7 +23,7 @@ const registry = new Map<string, Worker>();
 
 /**
  * Регистрирует и запускает воркер.
- * Все сообщения вида { port, payload } проксируются в ports.emitPort().
+ * Сообщения `{ port, payload }` от Worker передаются подписчикам в основном потоке.
  */
 export async function registerWorker(opts: WorkerOptions): Promise<void> {
   if (registry.has(opts.name)) return;
@@ -28,18 +33,15 @@ export async function registerWorker(opts: WorkerOptions): Promise<void> {
   const workerOrModule = await opts.src();
   const w = 'default' in workerOrModule ? workerOrModule.default : workerOrModule;
 
-  w.addEventListener(
-    'message',
-    (e: MessageEvent<{ port: string; payload: unknown }>) => {
-        const { port, payload } = e.data ?? {};
-        if (typeof port === 'string') emitPort(port, payload);
-    },
-    );
+  const rollbackWorkerAttachment = _attachWorker(w, opts.ports);
 
-  if (opts.initMessage !== undefined) w.postMessage(opts.initMessage);
-
-  _attachWorker(w);
-  registry.set(opts.name, w);
+  try {
+    if (opts.initMessage !== undefined) w.postMessage(opts.initMessage);
+    registry.set(opts.name, w);
+  } catch (error) {
+    rollbackWorkerAttachment();
+    throw error;
+  }
 }
 
 /**
@@ -75,21 +77,21 @@ export type Msg = { port: string; payload?: unknown };
 export function createWorker<IN extends Msg, OUT extends Msg>(
   handlers: Record<IN['port'], (p: IN['payload']) => void | Promise<void>>,
 ) {
-    const handlerMap = new Map<string, (payload: IN['payload']) => void | Promise<void>>(
-        Object.entries(handlers),
-    );
+  const handlerMap = new Map<string, (payload: IN['payload']) => void | Promise<void>>(
+  Object.entries(handlers)
+);
 
-    self.onmessage = (e: MessageEvent<IN>) => {
-        const { port, payload } = e.data;
-        if (!handlerMap.has(port)) return;
-        const fn = handlerMap.get(port);
-        if (typeof fn === 'function') void fn(payload);
-    };
+  self.onmessage = (e: MessageEvent<IN>) => {
+    const { port, payload } = e.data;
+    if (!handlerMap.has(port)) return;
+    const fn = handlerMap.get(port);
+    if (typeof fn === 'function') void fn(payload);
+  };
 
-    const postPort = <K extends OUT['port']>(
-        port: K,
-        payload: Extract<OUT, { port: K }>['payload'],
-    ) => self.postMessage({ port, payload });
+  const postPort = <K extends OUT['port']>(
+    port: K,
+    payload: Extract<OUT, { port: K }>['payload'],
+  ) => self.postMessage({ port, payload });
 
-    return { postPort };
+  return { postPort };
 }

@@ -13,12 +13,18 @@
 
 export type PortName = string;
 export type PortListener<T = unknown> = (payload: T) => void;
+type WorkerMessageListener = (
+  event: MessageEvent<{ port: string; payload: unknown }>,
+) => void;
 
 /* ---------- Singleton-хранилище ---------- */
 interface SharedState {
   listeners: Map<PortName, Set<PortListener<unknown>>>;
   last: Map<PortName, unknown>;
   workers: Set<Worker>;
+  /** Только Workers с ограниченным списком ports; без записи Worker получает все. */
+  workerPorts: Map<Worker, Set<PortName>>;
+  workerMessageListeners: Map<Worker, WorkerMessageListener>;
   debug: { emit: boolean; listen: boolean };
 }
 
@@ -29,10 +35,15 @@ const shared: SharedState =
     listeners: new Map(),
     last: new Map(),
     workers: new Set(),
+    workerPorts: new Map(),
+    workerMessageListeners: new Map(),
     debug: { emit: false, listen: false },
   });
 
-const { listeners, last, workers, debug } = shared;
+if (!shared.workerPorts) shared.workerPorts = new Map();
+if (!shared.workerMessageListeners) shared.workerMessageListeners = new Map();
+
+const { listeners, last, workers, workerPorts, workerMessageListeners, debug } = shared;
 
 /* ---------- Вспомогалка логирования ---------- */
 function log(kind: 'emit' | 'listen', port: PortName, data?: unknown) {
@@ -47,13 +58,35 @@ function log(kind: 'emit' | 'listen', port: PortName, data?: unknown) {
   );
 }
 
-/* ---------- API ---------- */
+function acceptsPort(worker: Worker, port: PortName): boolean {
+  const filter = workerPorts.get(worker);
+  return !filter || filter.has(port);
+}
 
-export function emitPort<T = unknown>(port: PortName, payload: T): void {
+function postToWorkers(port: PortName, payload: unknown): void {
+  let message: { port: PortName; payload: unknown } | undefined;
+
+  for (const worker of workers) {
+    if (!acceptsPort(worker, port)) continue;
+    if (!message) message = { port, payload };
+    worker.postMessage(message);
+  }
+}
+
+function publishMainPort<T>(port: PortName, payload: T): void {
   log('emit', port, payload);
   last.set(port, payload);
   listeners.get(port)?.forEach(cb => (cb as PortListener<T>)(payload));
-  workers.forEach(w => w.postMessage({ port, payload }));
+}
+
+/* ---------- API ---------- */
+
+/**
+ * Уведомляет подписчиков в основном потоке и подходящих Workers.
+ */
+export function emitPort<T = unknown>(port: PortName, payload: T): void {
+  publishMainPort(port, payload);
+  postToWorkers(port, payload);
 }
 
 export function onPort<T = unknown>(
@@ -117,10 +150,58 @@ export function setPortsDebug(
 }
 
 /* -------- internal: привязка воркеров -------- */
-export function _attachWorker(worker: Worker): void {
-  workers.add(worker);
+
+/**
+ * Привязывает Worker и возвращает функцию, которая восстанавливает предыдущее состояние.
+ *
+ * @param ports Если список не передан, Worker получает все ports; пустой список — ни одного.
+ */
+export function _attachWorker(worker: Worker, ports?: readonly string[]): () => void {
+  const isAttached = workers.has(worker);
+  const previousPorts = workerPorts.has(worker)
+    ? new Set(workerPorts.get(worker))
+    : undefined;
+
+  const rollback = () => {
+    if (!isAttached) {
+      _detachWorker(worker);
+      return;
+    }
+
+    if (previousPorts) workerPorts.set(worker, previousPorts);
+    else workerPorts.delete(worker);
+  };
+
+  if (!isAttached) {
+    const onMessage: WorkerMessageListener = event => {
+      if (!workers.has(worker)) return;
+      const { port, payload } = event.data ?? {};
+      if (typeof port === 'string') publishMainPort(port, payload);
+    };
+    worker.addEventListener('message', onMessage);
+    workerMessageListeners.set(worker, onMessage);
+    workers.add(worker);
+  }
+
+  if (ports === undefined) {
+    workerPorts.delete(worker);
+    return rollback;
+  }
+
+  const filter = workerPorts.get(worker);
+  if (filter) {
+    ports.forEach(port => filter.add(port));
+  } else if (!isAttached) {
+    workerPorts.set(worker, new Set(ports));
+  }
+
+  return rollback;
 }
 
 export function _detachWorker(worker: Worker): void {
+  const onMessage = workerMessageListeners.get(worker);
+  if (onMessage) worker.removeEventListener('message', onMessage);
+  workerMessageListeners.delete(worker);
   workers.delete(worker);
+  workerPorts.delete(worker);
 }
