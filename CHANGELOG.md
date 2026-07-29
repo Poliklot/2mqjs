@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 This project uses [Release Please](https://github.com/googleapis/release-please) and follows Conventional Commits for automated release notes.
 
+## [0.1.5](https://github.com/Poliklot/2mqjs/compare/2mqjs-v0.1.4...2mqjs-v0.1.5) (2026-07-29)
+
+
+### Bug Fixes
+
+* issue: bug(ports-workers): prevent worker port echo loops and add targeted routing  [#21](https://github.com/Poliklot/2mqjs/issues/21) ([#33](https://github.com/Poliklot/2mqjs/issues/33)) ([a50924c](https://github.com/Poliklot/2mqjs/commit/a50924c555a5bfe312191950c51e8d8824e7b3e1))
+* make failed component lifecycles retryable ([#32](https://github.com/Poliklot/2mqjs/issues/32)) ([38804b2](https://github.com/Poliklot/2mqjs/commit/38804b2751bb3184c473fd037b49749cd8d83b5e))
+* решение bug(store): updater-based set/update can lose sequential changes before the next snapshot [#20](https://github.com/Poliklot/2mqjs/issues/20) ([#31](https://github.com/Poliklot/2mqjs/issues/31)) ([24d9c9c](https://github.com/Poliklot/2mqjs/commit/24d9c9c57187c603c32b0bf742f35e4168530e8c))
+
 ## [0.1.4](https://github.com/Poliklot/2mqjs/compare/2mqjs-v0.1.3...2mqjs-v0.1.4) (2026-07-27)
 
 ### Bug Fixes
