@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project uses [Release Please](https://github.com/googleapis/release-please) and follows Conventional Commits for automated release notes.
 
+## [0.1.6](https://github.com/Poliklot/2mqjs/compare/2mqjs-v0.1.5...2mqjs-v0.1.6) (2026-08-11)
+
+
+### Bug Fixes
+
+* **deps:** update transitive dependencies ([a576afc](https://github.com/Poliklot/2mqjs/commit/a576afc0b6eab27cfee1a9f77ecbbac9132487a7))
+
 ## [0.1.5](https://github.com/Poliklot/2mqjs/compare/2mqjs-v0.1.4...2mqjs-v0.1.5) (2026-07-29)
 
 
