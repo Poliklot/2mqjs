@@ -27,3 +27,7 @@ updates:
       production-dependencies:
         dependency-type: production
         update-types: [minor, patch]
+    ignore:
+      # Vitest 5 requires Node 22.12+, while CI still verifies Node 20.
+      - dependency-name: vitest
+        update-types: [version-update:semver-major]
