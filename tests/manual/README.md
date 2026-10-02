@@ -8,6 +8,13 @@
 
 Каждый сценарий хранится изолированно в `issues/<issue>/<task>/<scenario>/` и содержит собственные `index.html` и `main.ts`.
 
+## Issue #1
+
+- `first-interaction` — реальный dynamic import, исходный Event и вложенный target, повторные scan,
+  keyboard/pointer/touch и сохранение нативного поведения checkbox.
+- Query `mode=click|keyboard|pointer|touch` выбирает триггеры; `callback=default` проверяет fallback вместо boot.
+- E2E задерживает загрузку модуля через Playwright route, чтобы проверить быстрые события до завершения import.
+
 ## Issue #3
 
 - `resize-subscriptions` — очистка resize-listener после отписки.
