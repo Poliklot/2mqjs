@@ -93,22 +93,50 @@ runComponentLoader();
 ```
 
 ```html
-<article data-component="product-card"></article>
+<article data-component="product-card" data-product-id="sku-42"></article>
 ```
 
 Модуль компонента:
 
 ```ts
+import type { ComponentBootContext } from '2mqjs/components';
+import { emitPort } from '2mqjs/ports';
+
 export function display(el: Element) {
-  el.innerHTML = '<button data-add>Добавить в корзину</button>';
+  el.innerHTML = '<button type="button" data-add>Добавить в корзину</button>';
 }
 
-export function boot(el: Element) {
-  el.querySelector('[data-add]')?.addEventListener('click', () => {
-    // Тяжёлая логика стартует только после появления компонента.
+export function boot(el: Element, context: ComponentBootContext) {
+  const addFromTarget = (target: EventTarget | null | undefined) => {
+    if (!(target instanceof Element)) return;
+    const button = target.closest('[data-add]');
+    if (button && el.contains(button)) {
+      emitPort('cart:add', { id: el.getAttribute('data-product-id') });
+    }
+  };
+
+  el.addEventListener('click', event => {
+    if (event !== context.triggerEvent) addFromTarget(event.target);
   });
+  if (context.triggerEvent?.type === 'click') addFromTarget(context.triggerTarget);
 }
 ```
+
+Чтобы запускать компонент по первому клику вместо видимости, измените регистрацию на
+`when: 'interaction', events: ['click']`. Нативный click кнопки также покрывает клавиатурную
+и touch-активацию. `boot` и `default` получают экспортируемый `ComponentBootContext`:
+`strategy`, исходный `triggerEvent` и его `triggerTarget`, сохранённый до async load.
+Компонент должен выполнить первое действие из контекста, как в примере выше, а не только
+установить handler для следующего клика. Для остальных стратегий оба поля события отсутствуют.
+Явный `bootComponent(el)` использует `immediate`, если первое interaction ещё не ждёт `display`.
+
+Loader не создаёт/replay-ит события, не отменяет default action и не останавливает propagation.
+Повторная попытка после ошибки создаётся только при новом scan по настроенной стратегии или
+явном `bootComponent`. Interaction-retry ждёт нового события; событие проваленной попытки
+не replay-ится. Для триггеров `keydown`,
+`pointerdown` и `touchstart` компонент сам определяет, какое событие означает действие.
+Для отмены нативной навигации/submit нужен заранее установленный handler приложения,
+а не async boot callback. Подробнее — [контракт interaction и retry](./docs/COMPONENTS.md).
 
 ### 2. Ports: явные события приложения
 

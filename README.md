@@ -93,22 +93,51 @@ runComponentLoader();
 ```
 
 ```html
-<article data-component="product-card"></article>
+<article data-component="product-card" data-product-id="sku-42"></article>
 ```
 
 Component module:
 
 ```ts
+import type { ComponentBootContext } from '2mqjs/components';
+import { emitPort } from '2mqjs/ports';
+
 export function display(el: Element) {
-  el.innerHTML = '<button data-add>Add to cart</button>';
+  el.innerHTML = '<button type="button" data-add>Add to cart</button>';
 }
 
-export function boot(el: Element) {
-  el.querySelector('[data-add]')?.addEventListener('click', () => {
-    // Heavy logic starts only after the component becomes visible.
+export function boot(el: Element, context: ComponentBootContext) {
+  const addFromTarget = (target: EventTarget | null | undefined) => {
+    if (!(target instanceof Element)) return;
+    const button = target.closest('[data-add]');
+    if (button && el.contains(button)) {
+      emitPort('cart:add', { id: el.getAttribute('data-product-id') });
+    }
+  };
+
+  el.addEventListener('click', event => {
+    if (event !== context.triggerEvent) addFromTarget(event.target);
   });
+  if (context.triggerEvent?.type === 'click') addFromTarget(context.triggerTarget);
 }
 ```
+
+To start on the first click instead of visibility, change the registration to
+`when: 'interaction', events: ['click']`. A native button's click also covers keyboard
+and touch activation. `boot` and `default` receive an exported `ComponentBootContext`:
+`strategy`, the original `triggerEvent`, and its `triggerTarget` captured before async
+loading. The component must perform the first action from this context, as above;
+merely installing a future handler would require a second click. With other strategies,
+both event fields are absent. Explicit `bootComponent(el)` uses `immediate` unless a
+first interaction is already waiting for `display`.
+
+The loader never synthesizes/replays events, prevents their default action, or stops
+propagation. A failed attempt is retried only by a new scan using its configured strategy
+or explicit `bootComponent`. An interaction retry waits for a fresh event; the failed
+event is not replayed. For `keydown`,
+`pointerdown`, or `touchstart` triggers, the component decides which events mean an action.
+Cancellation of native navigation/submit needs an eager application handler, not an async
+boot callback. See the [full interaction and retry contract](./docs/COMPONENTS.md).
 
 ### 2. Ports: explicit app events
 

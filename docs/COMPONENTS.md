@@ -20,8 +20,8 @@
 
 | Метод                       | Назначение                                              | Сигнатура                                      |
 | --------------------------- | ------------------------------------------------------- | ---------------------------------------------- |
-| `registerComponent`         | Регистрирует компонент                                  | `({ name, load, when?, hasDisplay? }) => void` |
-| `runComponentLoader`        | Сканирует контейнер или весь DOM и запускает компоненты | `(root?: ParentNode) => void`                  |
+| `registerComponent`         | Регистрирует компонент                                  | `({ name, load, when?, hasDisplay?, events? }) => void` |
+| `runComponentLoader`        | Сканирует контейнер или весь DOM и запускает компоненты | `(root?: HTMLElement) => void`                  |
 | `bootComponent`             | Форсирует boot для конкретного элемента (в т.ч. retry)  | `(el: Element) => void`                        |
 | `setComponentsErrorHandler` | Опциональный hook ошибок load/display/boot              | `(handler: ((error: unknown) => void) \| null) => void` |
 
@@ -32,10 +32,16 @@
 ```ts
 export type ComponentCallback = (el: Element) => void | PromiseLike<void>;
 
+export type ComponentBootContext = {
+  strategy: 'immediate' | 'visible' | 'interaction';
+  triggerEvent?: Event;
+  triggerTarget?: EventTarget | null;
+};
+
 export type ComponentModule = {
   display?: ComponentCallback;
-  boot?: ComponentCallback;
-  default?: ComponentCallback;
+  boot?: (el: Element, context: ComponentBootContext) => void | PromiseLike<void>;
+  default?: (el: Element, context: ComponentBootContext) => void | PromiseLike<void>;
 };
 
 export type ComponentLoader = () => Promise<ComponentModule> | ComponentModule;
@@ -65,6 +71,9 @@ export type InitStrategy = 'immediate' | 'visible' | 'interaction';
 
 ## 🛠 Пример компонента
 
+Этот вариант рассчитан на `visible`/`immediate`. Для `interaction` обработка первого действия
+из контекста показана в следующем разделе.
+
 ```ts
 // components/product-card.ts
 export function display(el: Element) {
@@ -85,7 +94,83 @@ export function boot(el: Element) {
 
 * **`immediate`** — запуск сразу после регистрации.
 * **`visible`** — запуск при появлении элемента во вьюпорте (`IntersectionObserver`).
-* **`interaction`** — запуск при взаимодействии пользователя (click, focus и т.д.).
+* **`interaction`** — запуск по первому настроенному DOM-событию. По умолчанию — `click`, `focus`, `mouseenter`;
+  `events` задаёт собственный список (пустой список использует defaults).
+
+### Первое действие пользователя
+
+`boot(el, context)` и fallback `default(el, context)` получают контекст **первого** запроса запуска:
+
+- `strategy` — фактическая стратегия запуска;
+- для `interaction` `triggerEvent` — исходный объект `Event`, а `triggerTarget` — его `target`,
+  сохранённый **до** асинхронной загрузки. Вложенная иконка/`span` не заменяется корнем компонента;
+- для `immediate` и `visible` поля `triggerEvent` и `triggerTarget` отсутствуют;
+- `bootComponent(el)` запускает с `strategy: 'immediate'` без события. Если первое interaction
+  уже ждёт завершения `display`, принудительный вызов не заменяет его контекст.
+
+Первое событие снимает все sibling trigger-listeners. Повторные события и scan не создают
+вторую попытку во время load/display/boot; асинхронный `display` не теряет первый контекст.
+После успешного lifecycle loader не запускает компонент заново.
+
+**2mqjs не создаёт и не redispatch-ит события, не вызывает `preventDefault()` и не останавливает propagation.**
+Компонент должен сам выполнить первое действие из контекста, а не только установить будущий handler.
+После ошибки контекст не replay-ится: следующий scan ждёт **новое** событие по настроенной стратегии;
+`bootComponent(el)` создаёт immediate-retry без события проваленной попытки. Автоматического retry нет.
+
+Например, SSR уже содержит кнопку:
+
+```html
+<article data-component="add-to-cart" data-product-id="sku-42">
+  <button type="button" data-add><span>Добавить в корзину</span></button>
+</article>
+```
+
+```ts
+import { registerComponent, runComponentLoader } from '2mqjs/components';
+
+registerComponent({
+  name: 'add-to-cart',
+  load: () => import('./components/add-to-cart.js'),
+  when: 'interaction',
+  events: ['click'],
+});
+runComponentLoader();
+```
+
+Модуль `components/add-to-cart.ts`:
+
+```ts
+import type { ComponentBootContext } from '2mqjs/components';
+import { emitPort } from '2mqjs/ports';
+
+export function boot(el: Element, context: ComponentBootContext) {
+  const addFromTarget = (target: EventTarget | null | undefined) => {
+    if (!(target instanceof Element)) return;
+    const button = target.closest('[data-add]');
+    if (button && el.contains(button)) {
+      emitPort('cart:add', { id: el.getAttribute('data-product-id') });
+    }
+  };
+
+  el.addEventListener('click', event => {
+    // Тот же Event уже обрабатывается из контекста, в т.ч. при sync load.
+    if (event !== context.triggerEvent) addFromTarget(event.target);
+  });
+
+  if (context.triggerEvent?.type === 'click') addFromTarget(context.triggerTarget);
+}
+```
+
+Та же сигнатура и обработка контекста применимы к `default` вместо `boot`.
+Нативный `click` кнопки поддерживает мышь, touch и клавиатурную активацию Enter/Space.
+При необходимости можно явно указать `events: ['keydown', 'pointerdown', 'touchstart']`:
+компонент сам проверяет тип события, клавишу и смысл действия. `focus`/`mouseenter` могут
+запустить boot, но сами по себе не означают «добавить в корзину».
+
+Контекст приходит после загрузки модуля: поздно отменять уже завершённую навигацию, submit
+или другой default action. Если такое управление необходимо, лёгкий синхронный handler
+должен быть установлен приложением заранее. Не используйте `event.currentTarget` после
+async load — к этому моменту он может быть `null`; используйте сохранённый `triggerTarget`.
 
 ---
 
