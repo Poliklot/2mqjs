@@ -93,7 +93,7 @@ describe('components: регрессия — существующие happy path
     runComponentLoader(root);
 
     expect(boot).toHaveBeenCalledTimes(1);
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'immediate' });
   });
 
   it('immediate: синхронный module.default вызывается, если boot нет', () => {
@@ -110,7 +110,7 @@ describe('components: регрессия — существующие happy path
     runComponentLoader(root);
 
     expect(def).toHaveBeenCalledTimes(1);
-    expect(def).toHaveBeenCalledWith(el);
+    expect(def).toHaveBeenCalledWith(el, { strategy: 'immediate' });
   });
 
   it('immediate: async load, затем boot', async () => {
@@ -128,7 +128,7 @@ describe('components: регрессия — существующие happy path
     await flushMicrotasks();
 
     expect(boot).toHaveBeenCalledTimes(1);
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'immediate' });
   });
 
   it('hasDisplay: display до boot через один load lifecycle', async () => {
@@ -155,7 +155,7 @@ describe('components: регрессия — существующие happy path
     await flushMicrotasks();
 
     expect(display).toHaveBeenCalledWith(el);
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'immediate' });
     expect(order).toEqual(['display', 'boot']);
     expect(load).toHaveBeenCalledTimes(1);
   });
@@ -195,7 +195,7 @@ describe('components: регрессия — существующие happy path
     bootComponent(el);
 
     expect(boot).toHaveBeenCalledTimes(1);
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'immediate' });
   });
 
   it('visible: observe элемента и boot при intersect', () => {
@@ -226,6 +226,7 @@ describe('components: регрессия — существующие happy path
     );
 
     expect(boot).toHaveBeenCalledTimes(1);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'visible' });
     expect(observerInstances[0].unobserve).toHaveBeenCalledWith(el);
   });
 
@@ -308,7 +309,7 @@ describe('components: регрессия — существующие happy path
     listeners.get('click')!(new Event('click'));
 
     expect(oldBoot).not.toHaveBeenCalled();
-    expect(currentBoot).toHaveBeenCalledWith(el);
+    expect(currentBoot).toHaveBeenCalledWith(el, { strategy: 'interaction', triggerEvent: expect.any(Event), triggerTarget: null });
   });
 });
 
@@ -347,7 +348,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     await flushMicrotasks();
 
     expect(attempt).toBe(2);
-    expect(successfulBoot).toHaveBeenCalledWith(el);
+    expect(successfulBoot).toHaveBeenCalledWith(el, { strategy: 'immediate' });
   });
 
   it('rejected async default переводит lifecycle в failed и разрешает retry', async () => {
@@ -384,7 +385,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     await flushMicrotasks();
 
     expect(attempt).toBe(2);
-    expect(successfulDefault).toHaveBeenCalledWith(el);
+    expect(successfulDefault).toHaveBeenCalledWith(el, { strategy: 'immediate' });
   });
 
   it('rejected async display не запускает boot и разрешает полный retry', async () => {
@@ -497,7 +498,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
 
     expect(attempt).toBe(2);
     expect(boot).toHaveBeenCalledTimes(1);
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'immediate' });
   });
 
   it('сообщает о sync throw boot() и сохраняет throw для bootComponent', () => {
@@ -720,7 +721,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     await flushMicrotasks();
 
     expect(attempt).toBe(2);
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'interaction', triggerEvent: expect.any(Event), triggerTarget: null });
   });
 
   it('hasDisplay: rejected load переводит lifecycle в failed и повторяется на scan', async () => {
@@ -757,7 +758,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
 
     expect(load).toHaveBeenCalledTimes(2);
     expect(display).toHaveBeenCalledWith(el);
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'immediate' });
   });
 
   it('hasDisplay + visible: async fail display ретраится на следующем scan', async () => {
@@ -803,7 +804,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     );
     await flushMicrotasks();
 
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'visible' });
   });
 
   it('hasDisplay: async display throw переводит lifecycle в failed и ретраится', async () => {
@@ -875,7 +876,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     await flushMicrotasks();
 
     expect(display).toHaveBeenCalledWith(el);
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'visible' });
   });
 
   it('hasDisplay + visible: старый observer не запускает новый lifecycle после display fail', async () => {
@@ -920,7 +921,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     );
     await flushMicrotasks();
 
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'visible' });
   });
 
   it('hasDisplay + interaction: старый listener не запускает новый lifecycle после display fail', async () => {
@@ -959,7 +960,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
 
     listeners.get('click')!(new Event('click'));
     await flushMicrotasks();
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'interaction', triggerEvent: expect.any(Event), triggerTarget: null });
   });
 
   it('bootComponent снимает observer отложенной visible-стратегии', () => {
@@ -978,6 +979,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
 
     expect(observerInstances[0].unobserve).toHaveBeenCalledWith(el);
     expect(boot).toHaveBeenCalledOnce();
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'immediate' });
   });
 
   it('bootComponent снимает listeners отложенной interaction-стратегии', () => {
@@ -996,6 +998,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
 
     expect(el.removeEventListener).toHaveBeenCalledTimes(3);
     expect(boot).toHaveBeenCalledOnce();
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'immediate' });
   });
 
   it('hasDisplay: после boot fail retry заново load + display + boot', () => {
@@ -1017,7 +1020,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     expect(load).toHaveBeenCalledTimes(2);
     expect(display).toHaveBeenCalledTimes(2);
     expect(boot).toHaveBeenCalledTimes(2);
-    expect(boot).toHaveBeenLastCalledWith(el);
+    expect(boot).toHaveBeenLastCalledWith(el, { strategy: 'immediate' });
   });
 
   it('thenable load (не instanceof Promise) дожидается и вызывает boot', async () => {
@@ -1045,7 +1048,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     await flushMicrotasks();
 
     expect(boot).toHaveBeenCalledTimes(1);
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'immediate' });
 
     runComponentLoader(root);
     await flushMicrotasks();
@@ -1091,7 +1094,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
     runComponentLoader(root);
     await flushMicrotasks();
 
-    expect(boot).toHaveBeenCalledWith(el);
+    expect(boot).toHaveBeenCalledWith(el, { strategy: 'immediate' });
   });
 
   it('мигрирует global singleton state предыдущей версии', async () => {
@@ -1132,7 +1135,7 @@ describe('issue #22: lifecycle boot, retry, ошибки', () => {
       components.runComponentLoader(root);
 
       expect(boot).toHaveBeenCalledTimes(1);
-      expect(boot).toHaveBeenCalledWith(freshEl);
+      expect(boot).toHaveBeenCalledWith(freshEl, { strategy: 'immediate' });
     } finally {
       globalWithSymbols[globalKey] = currentState;
       vi.resetModules();

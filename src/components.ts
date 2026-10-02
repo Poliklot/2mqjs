@@ -3,6 +3,13 @@
  */
 export type ComponentCallback = (el: Element) => void | PromiseLike<void>;
 
+/** Контекст запуска; исходное событие и target есть только у interaction. */
+export type ComponentBootContext = {
+  strategy: InitStrategy;
+  triggerEvent?: Event;
+  triggerTarget?: EventTarget | null;
+};
+
 export type ComponentModule = {
   /**
    * Отвечает за первичное отображение, не требует данных или воркеров
@@ -12,12 +19,12 @@ export type ComponentModule = {
   /**
    * Основной метод — инициализация бизнес-логики, требует данных/воркеров
    */
-  boot?: ComponentCallback;
+  boot?: (el: Element, context: ComponentBootContext) => void | PromiseLike<void>;
 
   /**
    * Если компонент не использует разделение display/boot — можно использовать default
    */
-  default?: ComponentCallback;
+  default?: (el: Element, context: ComponentBootContext) => void | PromiseLike<void>;
 };
 
 /**
@@ -69,8 +76,8 @@ interface BootLifecycle {
   module?: ComponentModule | Promise<ComponentModule>;
   /** hasDisplay: display уже выполнен */
   displayReady?: boolean;
-  /** strategy/bootComponent пришёл раньше display */
-  bootRequested?: boolean;
+  /** Первый запрос boot сохраняется на время ожидания display. */
+  bootContext?: ComponentBootContext;
   /** Снимает observer/listeners текущей стратегии. */
   clearTrigger?: () => void;
 }
@@ -221,7 +228,7 @@ export function runComponentLoader($root: HTMLElement = document.body): void {
       const lifecycle = observedLifecycles.get(entry.target);
       if (lifecycle) {
         clearTrigger(lifecycle);
-        tryBoot(entry.target, lifecycle);
+        tryBoot(entry.target, lifecycle, { strategy: 'visible' });
       }
     });
   });
@@ -300,9 +307,13 @@ function attachInteractionListeners(
   const triggers: InteractionEvent[] =
     events && events.length ? events : ['click', 'focus', 'mouseenter'];
 
-  const handler = () => {
+  const handler = (event: Event) => {
     clearTrigger(lifecycle);
-    tryBoot(el, lifecycle);
+    tryBoot(el, lifecycle, {
+      strategy: 'interaction',
+      triggerEvent: event,
+      triggerTarget: event.target,
+    });
   };
 
   lifecycle.clearTrigger = () => {
@@ -313,6 +324,7 @@ function attachInteractionListeners(
 
 /**
  * Принудительно запускает boot-метод компонента для указанного элемента
+ * Использует immediate-контекст, если strategy ещё не запросила boot.
  * @param el DOM-элемент с атрибутом data-component
  */
 export function bootComponent(el: Element): void {
@@ -328,23 +340,28 @@ export function bootComponent(el: Element): void {
 }
 
 /** boot / default; ждёт display при hasDisplay. */
-function tryBoot(el: Element, lifecycle: BootLifecycle): void {
+function tryBoot(
+  el: Element,
+  lifecycle: BootLifecycle,
+  context: ComponentBootContext = { strategy: 'immediate' },
+): void {
   if (bootLifecycles.get(el) !== lifecycle || lifecycle.state !== 'pending') return;
 
-  lifecycle.bootRequested = true;
+  lifecycle.bootContext ??= context;
   const def = getComponentDefinition(el);
   if (!def || (def.hasDisplay && !lifecycle.displayReady)) return;
 
   lifecycle.state = 'booting';
-  lifecycle.bootRequested = false;
+  const bootContext = lifecycle.bootContext;
+  lifecycle.bootContext = undefined;
   log('init', el.getAttribute('data-component')!, 'boot');
 
   runWithModule(el, def, lifecycle, mod => {
     if (lifecycle.state === 'failed') return;
 
     let result: void | PromiseLike<void> = undefined;
-    if (mod.boot) result = mod.boot(el);
-    else if (!def.hasDisplay && typeof mod.default === 'function') result = mod.default(el);
+    if (mod.boot) result = mod.boot(el, bootContext);
+    else if (!def.hasDisplay && typeof mod.default === 'function') result = mod.default(el, bootContext);
 
     return completeLifecycleStep(el, lifecycle, result, () => {
       lifecycle.state = 'booted';
@@ -363,7 +380,7 @@ function prepareDisplay(
   runWithModule(el, def, lifecycle, mod => {
     return completeLifecycleStep(el, lifecycle, mod.display?.(el), () => {
       lifecycle.displayReady = true;
-      if (lifecycle.bootRequested) tryBoot(el, lifecycle);
+      if (lifecycle.bootContext) tryBoot(el, lifecycle);
     });
   });
 }
@@ -385,6 +402,7 @@ function completeLifecycleStep(
 function fail(el: Element, lifecycle: BootLifecycle, error: unknown): void {
   if (bootLifecycles.get(el) !== lifecycle || lifecycle.state === 'failed') return;
   lifecycle.state = 'failed';
+  lifecycle.bootContext = undefined;
   clearTrigger(lifecycle);
   reportError(error);
 }

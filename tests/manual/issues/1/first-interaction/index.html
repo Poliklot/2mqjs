@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Issue #1 · Первое взаимодействие</title>
+    <link rel="stylesheet" href="../../../shared/styles.css" />
+  </head>
+  <body>
+    <main class="manual-tests">
+      <a class="manual-tests__back" href="../../../">← Ручные тесты</a>
+      <header class="manual-tests__header manual-tests__header--compact">
+        <p class="manual-tests__eyebrow">Issue #1 / Components</p>
+        <h1>Первое взаимодействие</h1>
+        <p class="manual-tests__intro">Реальный import() и обработка первого действия из boot-контекста.</p>
+      </header>
+      <section class="manual-steps" aria-labelledby="steps-title">
+        <h2 id="steps-title">Как проверить вручную</h2>
+        <ol>
+          <li>Выберите режим: <a href="?mode=click">click</a>, <a href="?mode=keyboard">keyboard</a>,
+            <a href="?mode=pointer">pointer</a> или <a href="?mode=touch">touch</a>.</li>
+          <li>Нажмите «Повторить сканирование» несколько раз: load и boot должны оставаться равны 0.</li>
+          <li>Нажмите «Добавить товар» (для keyboard — Enter, для touch — касание на touch-устройстве).</li>
+          <li>После первого действия load, boot и действия равны 1; исходное событие сохранено.</li>
+          <li>Перезагрузите страницу и нажмите checkbox: его нативное переключение не блокируется.</li>
+        </ol>
+      </section>
+      <section class="cleanup-test" aria-labelledby="test-title">
+        <h2 id="test-title">Контекст первого события</h2>
+        <p class="cleanup-test__status" role="status" data-testid="interaction-status">Ожидание события</p>
+        <dl class="cleanup-test__metrics" aria-live="polite">
+          <div><dt>Load</dt><dd data-testid="load-count">0</dd></div>
+          <div><dt>Boot</dt><dd data-testid="boot-count">0</dd></div>
+          <div><dt>Действия</dt><dd data-testid="action-count">0</dd></div>
+          <div><dt>Bubbling</dt><dd data-testid="bubble-count">0</dd></div>
+        </dl>
+        <p>Тип: <output data-testid="trigger-type">—</output>;
+          target: <output data-testid="trigger-target">—</output>;
+          исходный Event: <output data-testid="same-event">—</output>;
+          isTrusted: <output data-testid="trusted-event">—</output>.</p>
+        <div data-component="interaction-demo" data-testid="component">
+          <button class="cleanup-test__run" id="action-button" data-action type="button">
+            <span id="nested-target" data-testid="nested-target">Добавить товар</span>
+          </button>
+          <p><label><input id="native-checkbox" data-action type="checkbox" /> Нативный checkbox</label></p>
+        </div>
+        <button class="cleanup-test__run" data-testid="rescan" type="button">Повторить сканирование</button>
+      </section>
+      <script type="module" src="./main.ts"></script>
+    </main>
+  </body>
+</html>

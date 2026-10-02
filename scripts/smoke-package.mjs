@@ -76,7 +76,7 @@ const sizeBudget = {
   'dist/ports.js': 4_000,
   'dist/events.js': 2_500,
   'dist/workers.js': 2_500,
-  'dist/components.js': 7_500,
+  'dist/components.js': 8_000,
   'dist/tasks.js': 12_000,
   'dist/store.js': 12_000,
   'dist/store.worker.js': 9_000,
